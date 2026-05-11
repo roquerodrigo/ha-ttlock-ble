@@ -17,20 +17,32 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: ha-ttlock-ble
+
+      - name: Checkout ttlock-ble sibling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: roquerodrigo/ttlock-ble
+          path: ttlock-ble
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: ha-ttlock-ble/requirements.txt
 
       - name: Install requirements
+        working-directory: ha-ttlock-ble
         run: python3 -m pip install -r requirements.txt
 
       - name: Lint
+        working-directory: ha-ttlock-ble
         run: python3 -m ruff check .
 
       - name: Format
+        working-directory: ha-ttlock-ble
         run: python3 -m ruff format . --check
 
   mypy:
@@ -39,15 +51,26 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: ha-ttlock-ble
+
+      - name: Checkout ttlock-ble sibling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: roquerodrigo/ttlock-ble
+          path: ttlock-ble
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: ha-ttlock-ble/requirements.txt
 
       - name: Install requirements
+        working-directory: ha-ttlock-ble
         run: python3 -m pip install -r requirements.txt
 
       - name: Type check
-        run: python3 -m mypy custom_components/integration_blueprint
+        working-directory: ha-ttlock-ble
+        run: python3 -m mypy custom_components/ttlock_ble

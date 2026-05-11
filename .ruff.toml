@@ -35,4 +35,5 @@ max-complexity = 25
     "PLC0415", # local imports inside fixtures are intentional
     "SLF001",  # testing private HA attrs and internal methods is intentional
     "PLR2004", # magic numbers in test assertions are fine
+    "PLR0913", # fixtures are passed as arguments; tests can need many
 ]

@@ -4,7 +4,7 @@ Guidance for Claude Code (claude.ai/code) agents working in this repository.
 
 ## Always read `CODE_STYLE.md` first
 
-Before creating, renaming or restructuring any file/class/function, **read [`CODE_STYLE.md`](./CODE_STYLE.md)**. It is the single source of truth for conventions: language, file organisation, naming, typing, properties vs `__init__`, imports, docstrings, comments, coordinator pattern, repairs/diagnostics layout, translations, lint workflow.
+Before creating, renaming or restructuring any file/class/function, **read [`CODE_STYLE.md`](./CODE_STYLE.md)**. It is the single source of truth for conventions: language, file organisation, naming, typing, properties vs `__init__`, imports, docstrings, comments, coordinator pattern, diagnostics layout, translations, lint workflow.
 
 For user-facing topics (what's included, how to fork, rename steps, layout diagram, useful commands, CI list), see [`README.md`](./README.md).
 
@@ -41,15 +41,21 @@ Verify the pairing on PyPI before committing: the `requires_dist` of `pytest-hom
 The integration follows the HA `DataUpdateCoordinator` pattern:
 
 ```
-config_flow.py   → validates credentials and creates the ConfigEntry
-__init__.py      → instantiates ApiClient + DataUpdateCoordinator, performs the first refresh
-coordinator.py   → polls every scan_interval seconds; returns the typed payload
-sensor.py        → reads coordinator.data and creates the entities
+config_flow.py   → cloud-bootstraps credentials, requests 2FA when needed,
+                    pulls the per-lock VirtualKeys, creates the ConfigEntry
+__init__.py      → instantiates one TtlockBleConnection per lock and a
+                    DataUpdateCoordinator, performs the first refresh
+connection.py    → owns the long-lived BLE session, reconnect loop,
+                    cooldown, and push-event dispatch
+coordinator.py   → polls every scan_interval seconds via each connection
+lock.py          → LockEntity backed by the BLE connection
+sensor.py        → BatterySensor backed by the same poll + push events
+event.py         → EventEntity that surfaces decoded LockEvent pushes
 ```
 
 ### Entry typing
 
-`data.py` defines `IntegrationBlueprintConfigEntry = ConfigEntry[IntegrationBlueprintData]` and the `IntegrationBlueprintData(client, coordinator, integration)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+`data.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]` and the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 ### Config flow surface
 
@@ -58,7 +64,7 @@ sensor.py        → reads coordinator.data and creates the entities
 - `async_step_user` — initial setup; sets unique_id from username, aborts on duplicate.
 - `async_step_reauth` / `async_step_reauth_confirm` — fired when the coordinator raises `ConfigEntryAuthFailed`. `async_update_reload_and_abort` rotates credentials in place.
 - `async_step_reconfigure` — lets the user edit credentials via the integration's three-dot menu, no delete-and-re-add cycle.
-- `async_get_options_flow` — returns `IntegrationBlueprintOptionsFlow` from `options_flow.py` (one class per file).
+- `async_get_options_flow` — returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
 
 ### Options flow
 
@@ -66,23 +72,25 @@ sensor.py        → reads coordinator.data and creates the entities
 
 ### API client
 
-`api.py` exposes `IntegrationBlueprintApiClient` plus the `_verify_response_or_raise` helper. Exceptions live under `exceptions/`:
+`api.py` exposes `TtlockBleApiClient`, a thin async wrapper around the SDK's `TTLockCloud` used only by the config flow (cloud login + 2FA + key sync). Exceptions live under `exceptions/`:
 
-- `IntegrationBlueprintApiClientError` (base)
-- `IntegrationBlueprintApiClientCommunicationError` (timeout, connection)
-- `IntegrationBlueprintApiClientAuthenticationError` (401/403)
+- `TtlockBleApiClientError` (base)
+- `TtlockBleApiClientCommunicationError` (httpx network failure)
+- `TtlockBleApiClientAuthenticationError` (wrong credentials)
+- `TtlockBleApiClientVerificationRequiredError` (errcode -1014 → 2FA branch)
 
-`_api_wrapper` maps `TimeoutError`, `aiohttp.ClientError` and `socket.gaierror` to `CommunicationError`; any other exception becomes the base error.
+`_classify_cloud_error` maps the SDK's `CloudError` body onto these by inspecting `errorCode` / `errcode`. Runtime BLE state never goes through this client — that path is `connection.py` → SDK `TTLockClient` → bleak.
+
+### BLE connection layer
+
+`connection.py` defines `TtlockBleConnection`, one per `VirtualKey`. Each owns:
+
+- A long-lived `TTLockClient` (the SDK).
+- An `asyncio.Lock` serializing query/lock/unlock commands.
+- A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
+- A drop-storm cooldown: after `MAX_SHORT_DROPS` (3) sessions shorter than `SHORT_CONNECT_THRESHOLD` (30 s), sleeps `LONG_BACKOFF_SECONDS` (300 s) before retrying. `async_query_state` honours `_cooldown_until`; user-driven `async_lock`/`async_unlock` bypass it.
+- A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe.
 
 ### Diagnostics
 
-`diagnostics.py` returns `IntegrationBlueprintDiagnosticsPayload`. `username`/`password` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
-
-### Repairs
-
-`repairs.py` is the entry point HA calls when the user clicks **Fix** on an issue:
-
-- `async_create_fix_flow(hass, issue_id, data)` returns a `RepairsFlow`. Branch on `issue_id` for multiple kinds; the default returns `ConfirmRepairFlow`.
-- `async_raise_deprecated_api_issue(hass)` is the sample helper that registers an issue. Call helpers like this from the coordinator/setup when you detect a recoverable problem.
-
-Issue strings live under `issues.<issue_id>` in the translation files.
+`diagnostics.py` returns `TtlockBleDiagnosticsPayload`. `username`/`password`/`aesKeyStr`/`unlockKey`/`adminPs` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.

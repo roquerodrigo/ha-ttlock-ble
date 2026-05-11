@@ -1,0 +1,85 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Set up TTLock BLE",
+                "description": "Enter your TTLock cloud credentials. They are used once to download the per-lock keys; after that, lock/unlock runs offline over Bluetooth.",
+                "data": {
+                    "username": "Email",
+                    "password": "Password"
+                }
+            },
+            "verify_code": {
+                "title": "Verify your TTLock account",
+                "description": "TTLock sent a one-time code to your email. Enter it below to register this Home Assistant install as a trusted device.",
+                "data": {
+                    "verification_code": "Verification code"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate TTLock BLE",
+                "description": "Your credentials are no longer valid. Enter the updated credentials.",
+                "data": {
+                    "username": "Email",
+                    "password": "Password"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure TTLock BLE",
+                "description": "Update the credentials for this entry. Keys will be re-synced from the cloud.",
+                "data": {
+                    "username": "Email",
+                    "password": "Password"
+                }
+            }
+        },
+        "error": {
+            "auth": "Email or password is incorrect.",
+            "connection": "Unable to reach the TTLock cloud.",
+            "invalid_code": "The verification code was not accepted. Please try again.",
+            "verification_required": "TTLock requires verifying this device. Re-add the integration to complete the flow.",
+            "unknown": "Unknown error occurred."
+        },
+        "abort": {
+            "already_configured": "This account is already configured.",
+            "reauth_successful": "Re-authentication was successful.",
+            "reconfigure_successful": "Reconfiguration was successful."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "TTLock BLE options",
+                "description": "Tune polling and other behaviour for this entry.",
+                "data": {
+                    "scan_interval": "Polling interval (seconds)"
+                }
+            }
+        }
+    },
+    "entity": {
+        "lock": {
+            "lock": {
+                "name": "Lock"
+            }
+        },
+        "sensor": {
+            "battery": {
+                "name": "Battery"
+            }
+        },
+        "event": {
+            "operation": {
+                "name": "Operation",
+                "state_attributes": {
+                    "event_type": {
+                        "state": {
+                            "operation_success": "Operation succeeded",
+                            "operation_failed": "Operation failed"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

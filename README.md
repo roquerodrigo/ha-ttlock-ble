@@ -1,48 +1,65 @@
-# Home Assistant Integration Blueprint
+# Home Assistant TTLock BLE
 
-[![HACS Validate](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/validate.yml/badge.svg)](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/validate.yml)
-[![Lint](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/lint.yml/badge.svg)](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/lint.yml)
-[![CodeQL](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/codeql.yml/badge.svg)](https://github.com/roquerodrigo/ha-integration-blueprint/actions/workflows/codeql.yml)
+[![HACS Validate](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/validate.yml/badge.svg)](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/validate.yml)
+[![Lint](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/lint.yml/badge.svg)](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/lint.yml)
+[![CodeQL](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/codeql.yml/badge.svg)](https://github.com/roquerodrigo/ha-ttlock-ble/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-Template for creating custom [Home Assistant](https://www.home-assistant.io/) integrations distributable via [HACS](https://hacs.xyz/).
-
-Based on [ludeeus/integration_blueprint](https://github.com/ludeeus/integration_blueprint), with adaptations used in the [@roquerodrigo](https://github.com/roquerodrigo) integrations. Conventions for contributors live in [`CODE_STYLE.md`](./CODE_STYLE.md); architectural notes for AI agents in [`CLAUDE.md`](./CLAUDE.md).
+Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https://www.home-assistant.io/). Lock / unlock, battery level and real-time push events flow over BLE — no cloud round-trip on every operation. Built on the sibling Python SDK [`ttlock-ble`](https://github.com/roquerodrigo/ttlock-ble).
 
 ## Add to Home Assistant
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=roquerodrigo&repository=ha-integration-blueprint&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=roquerodrigo&repository=ha-ttlock-ble&category=integration)
 
-## What's included
+## Features
 
-- **Full integration scaffold** with `DataUpdateCoordinator`, config flow, options flow, sample sensor and typed `runtime_data`.
-- **Reauth + reconfigure flows** triggered automatically by `ConfigEntryAuthFailed` or by the user.
-- **Options flow** with a configurable `scan_interval` plumbed through to the coordinator.
-- **Diagnostics platform** with credential redaction (`diagnostics.py`).
-- **Repairs platform** (`repairs.py`) wired into HA's Issue Registry, with sample issue + `ConfirmRepairFlow`.
-- **CI**: ruff lint + format, mypy type-check, `hassfest`, HACS validation, CodeQL security scan.
-- **Pre-commit hooks** (`.pre-commit-config.yaml`) — ruff + JSON/YAML/TOML checks.
-- **Coverage gate** at 95 % enforced by `pytest.ini` (currently at 100 %).
-- **Devcontainer** (Debian + Python 3.14) and VS Code extension recommendations.
-- **Scripts** that auto-detect `./.venv` (no `source activate` needed) to start HA in debug or run lint.
-- **Tests** with `pytest-homeassistant-custom-component` covering init, config + reauth + reconfigure flows, options flow, coordinator, API client, base entity, sensor, diagnostics, repairs and translation parity.
-- **Issue templates**, **PR template**, **`.editorconfig`** and grouped Dependabot updates.
-- **Translations** for English and Brazilian Portuguese (with parity test).
+- **Local BLE control** — lock, unlock, and state queries run over the lock's BLE link; the TTLock cloud is only contacted once at setup to download per-lock keys.
+- **Real-time push events** — keypad presses, fingerprint reads, IC-card swipes, mechanical key turns, and auto-lock fires arrive as Home Assistant events the moment the lock emits them.
+- **Battery sensor** — diagnostic entity refreshed by every poll *and* every push, no extra BLE traffic.
+- **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
+- **Persistent BLE session with drop-storm cooldown** — keeps the link warm to receive push events, but backs off for 5 minutes after three short drops to protect the lock's battery.
+- **Reauth + reconfigure** — re-prompt for credentials in place when the cloud rejects the cached login, or edit them via the integration's three-dot menu.
+- **Diagnostics** — downloadable dump with credentials/keys redacted.
+- **Translations** — English and Brazilian Portuguese (parity enforced by tests).
 
-## How to use
+## Entities
 
-1. Use this repository as a **template** on GitHub ("Use this template" button) or clone it manually.
-2. Rename the domain throughout the codebase:
-   - `custom_components/integration_blueprint/` → `custom_components/<your_domain>/`
-   - `DOMAIN = "integration_blueprint"` in `const.py`; `domain` in `manifest.json`; `name` in `hacs.json`
-   - `name`, `documentation`, `issue_tracker`, `codeowners` in `manifest.json`
-   - Rename classes: `IntegrationBlueprint*` → `<YourDomain>*`
-   - Run `grep -rn integration_blueprint .` to catch leftover imports (especially in `tests/`)
-3. Replace the sample API in `api.py` with your real client and adjust `coordinator.py`, `config_flow.py`, `sensor.py` to match.
-4. Update `translations/en.json` and `translations/pt-BR.json` (parity is enforced by tests).
-5. Replace the placeholder brand assets in `custom_components/integration_blueprint/brand/` (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`) with your own — these satisfy the HACS brand check locally until you register the integration in [`home-assistant/brands`](https://github.com/home-assistant/brands).
-6. Update `README.md` and `CLAUDE.md` for your integration.
+Each configured lock produces one HA device with three entities:
+
+| Entity | Domain | Purpose |
+|---|---|---|
+| `lock.<alias>` | `lock` | Locked/unlocked state, with optimistic updates and a post-command settle window. |
+| `sensor.<alias>_battery` | `sensor` | Battery percentage (diagnostic). |
+| `event.<alias>_operation` | `event` | Fires on every push from the lock, with decoded `lock_state`, `battery`, `uid`, `record_id`, `timestamp` attributes when present. |
+
+## Installation
+
+1. Install via HACS using the button above, or add this repo as a custom HACS repository (category: Integration).
+2. Restart Home Assistant.
+3. Settings → Devices & Services → Add Integration → **TTLock BLE**.
+4. Enter the TTLock cloud email + password you use in the official app.
+5. If TTLock has never seen this Home Assistant before, it will email a verification code — paste it into the next step.
+6. The integration syncs every lock visible on the account and creates the entities. From this point on, all lock / unlock / state operations stay on Bluetooth.
+
+The Bluetooth radio HA already manages (USB dongle, built-in adapter, or proxy) discovers the lock automatically — no additional configuration.
+
+## Options
+
+Settings → Devices & Services → TTLock BLE → **Configure** lets you tune:
+
+- `scan_interval` (default 300 s, minimum 60 s) — how often the coordinator polls the lock for state when no push events are arriving.
+
+To edit credentials without removing and re-adding, use the integration's three-dot menu → **Reconfigure**.
+
+## How it works
+
+The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silence and it drops). The integration:
+
+1. Keeps a persistent BLE session via `connection.py`, reconnecting on every drop signalled by bleak.
+2. Detects when the lock is in idle-sleep mode (≥ 3 sub-30 s sessions) and enters a 5-minute cooldown so we don't drain its battery thrashing.
+3. After a user-initiated `lock`/`unlock`, the SDK keeps the link alive for 25 s so push events (the lock's reports of keypad operations, auto-locks, etc.) reach Home Assistant in real time.
+4. Each push event carries the decoded `lock_state` and `battery` when the firmware emits a heartbeat-style payload, letting the entities update without a follow-up query.
 
 ## Useful commands
 
@@ -53,9 +70,9 @@ scripts/lint       # ruff format + check + mypy
 pytest             # run tests with the 95 % coverage gate
 ```
 
-Each script auto-detects `./.venv` and prepends it to `PATH` — no `source .venv/bin/activate` needed. For ad-hoc commands the same trick works: `.venv/bin/pytest`, `.venv/bin/ruff …`.
+Each script auto-detects `./.venv` and prepends it to `PATH` — no `source .venv/bin/activate` needed.
 
-HA runs with config in `config/` and `PYTHONPATH` pointing at `custom_components/` — no symlinks. To recreate entity/device IDs during development:
+HA runs with config in `config/` and `PYTHONPATH` pointing at the repo root. To reset entity/device IDs during development:
 
 ```bash
 rm config/.storage/core.entity_registry config/.storage/core.device_registry
@@ -64,30 +81,29 @@ rm config/.storage/core.entity_registry config/.storage/core.device_registry
 ## Layout
 
 ```
-custom_components/integration_blueprint/
-├── __init__.py        # async_setup_entry / unload / reload
-├── api.py             # ApiClient (single class)
-├── config_flow.py     # user / reauth / reconfigure steps
-├── const.py           # DOMAIN, LOGGER, URLs, ATTRIBUTION, scan-interval defaults
-├── coordinator.py     # DataUpdateCoordinator (interval injected from options)
-├── data.py            # typed ConfigEntry + IntegrationBlueprintData dataclass + TypedDicts
-├── diagnostics.py     # downloadable diagnostics with credential redaction
-├── entity.py          # base CoordinatorEntity
+custom_components/ttlock_ble/
+├── __init__.py        # async_setup_entry / unload / reload + bluetooth callbacks
+├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
+├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
+├── config_flow.py     # user / verify_code / reauth_confirm / reconfigure steps
+├── connection.py      # TtlockBleConnection: persistent BLE session per lock
+├── const.py           # DOMAIN, LOGGER, defaults
+├── coordinator.py     # DataUpdateCoordinator polling each connection
+├── data.py            # TypedDicts + TtlockBleData dataclass
+├── diagnostics.py     # redacted credentials/keys
+├── entity.py          # base CoordinatorEntity with DeviceInfo
+├── event.py           # TtlockBleOperationEvent push surface
 ├── exceptions/        # one file per exception class
-│   ├── __init__.py
-│   ├── api_client_authentication_error.py
-│   ├── api_client_communication_error.py
-│   └── api_client_error.py
+├── lock.py            # TtlockBleLock: LockEntity backed by the connection
 ├── manifest.json
-├── options_flow.py    # OptionsFlow with scan_interval
-├── repairs.py         # Repair platform: async_create_fix_flow + sample issue
-├── sensor.py          # sample platform
+├── options_flow.py    # TtlockBleOptionsFlow: scan_interval
+├── sensor.py          # TtlockBleBatterySensor backed by polls + pushes
 └── translations/
     ├── en.json
     └── pt-BR.json
 ```
 
-Layout convention (one top-level class per file; related classes grouped under a directory) is documented in [`CODE_STYLE.md`](./CODE_STYLE.md).
+Conventions for contributors live in [`CODE_STYLE.md`](./CODE_STYLE.md); architectural notes for AI agents in [`CLAUDE.md`](./CLAUDE.md).
 
 ## Pre-commit hooks
 

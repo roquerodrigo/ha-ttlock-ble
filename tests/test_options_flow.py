@@ -3,7 +3,7 @@ from __future__ import annotations
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.integration_blueprint.const import (
+from custom_components.ttlock_ble.const import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
 )
 

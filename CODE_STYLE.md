@@ -1,6 +1,6 @@
 # Code Style Guide
 
-Style conventions for the `ha-integration-blueprint` project. Run `scripts/lint`
+Style conventions for the `ha-ttlock-ble` project. Run `scripts/lint`
 before committing — it executes `ruff format`, `ruff check --fix` and `mypy`,
 and must exit cleanly. `pytest` (with the 95 % coverage gate) follows.
 
@@ -12,49 +12,56 @@ and must exit cleanly. `pytest` (with the 95 % coverage gate) follows.
   variable names, dictionary keys, identifier strings.
 - The conversation language with the user can be Portuguese or anything else;
   what is committed to disk stays English.
-- User-facing strings live in `custom_components/integration_blueprint/translations/{en,pt-BR}.json`
+- User-facing strings live in `custom_components/ttlock_ble/translations/{en,pt-BR}.json`
   only — never hardcoded in Python.
 
 ## File organization
 
-- **One top-level class per file.** Multiple semantically related classes (e.g.
-  exception families, sensor entities for one platform) get grouped into a
-  package directory with one class per submodule and an `__init__.py`
-  re-exporting the public symbols.
-  - Example: `exceptions/` contains `api_client_error.py`,
-    `api_client_communication_error.py`, `api_client_authentication_error.py`,
-    plus `__init__.py`.
-- **TypedDicts and `type` aliases do not count as "classes"** for this rule —
-  they live alongside related code (typically in `data.py`) and don't need
-  their own file.
+- **Strictly one top-level class per file.** Every class — regular classes,
+  `@dataclass`, `TypedDict`, `NamedTuple`, exception subclasses — gets its
+  own file. No exceptions: two TypedDicts in the same file is a violation.
+- **Related classes group into a package directory** with one class per
+  submodule and an `__init__.py` re-exporting the public symbols. Examples:
+  - `exceptions/` contains `api_client_error.py`,
+    `api_client_communication_error.py`, etc., plus `__init__.py`.
+  - `data/` contains `runtime.py`, `stored_key.py`, `config_data.py`,
+    `lock_state.py`, etc., plus `__init__.py` that re-exports each TypedDict
+    and the dataclass.
+- **`type` aliases are not classes** and can be grouped with related code —
+  typically in the package's `__init__.py` (e.g. `TtlockBleConfigEntry` and
+  `TtlockBleCoordinatorData` live in `data/__init__.py`).
 - **Helper functions** may live in the same file as the single class that uses
-  them (e.g. `_verify_response_or_raise` in `api.py`).
+  them (e.g. `_classify_cloud_error` in `api.py`).
 - **`__init__.py` of the integration package** wires `async_setup_entry`,
   `async_unload_entry`, `async_reload_entry` and nothing else.
 
-## Entities: one class per entity
+## Entities: encode behaviour directly, no description-callable indirection
 
-- **One class per entity.** Every entity gets its own dedicated class — never
-  share a generic class parameterized by an `EntityDescription` subclass with
-  callable fields like `value_fn` or `action_fn`. Encode the entity's behaviour
-  directly in its class via `@property` and class-level `_attr_*` constants
-  (or a plain `EntityDescription` instance assigned at the class level).
+The universal "one top-level class per file" rule above already mandates a
+dedicated class per entity. This section is about *how* each entity class
+should be written:
+
+- **Never** share a generic entity class parameterized by an
+  `EntityDescription` subclass with callable fields like `value_fn` or
+  `action_fn`. Encode the entity's behaviour directly in its class via
+  `@property` and class-level `_attr_*` constants (or a plain
+  `EntityDescription` instance assigned at the class level).
   - Don't write an `<DOMAIN><Platform>Description` subclass with a
     `value_fn` / `action_fn` field.
-  - Do write `<DOMAIN><Name><Platform>` (e.g. `IntegrationBlueprintStatusSensor`,
-    `IntegrationBlueprintCancelButton`, `IntegrationBlueprintDoorBinarySensor`).
+  - Do write `<DOMAIN><Name><Platform>` (e.g. `TtlockBleBatterySensor`,
+    `TtlockBleLock`, `TtlockBleOperationEvent`).
 - The reason: each entity is a discrete contract; mixing them through a
-  generic class hides the contract behind indirection and discourages per-entity
-  refinement (icons, state attributes, custom logic).
+  generic class hides the contract behind indirection and discourages
+  per-entity refinement (icons, state attributes, custom logic).
 
 ## Naming
 
-- Public classes are prefixed with `IntegrationBlueprint` (rename to
+- Public classes are prefixed with `TtlockBle` (rename to
   `<YourDomain>` when forking).
 - Concrete platform entities end with the entity type:
-  `IntegrationBlueprintSensor`, `IntegrationBlueprintBinarySensor`,
-  `IntegrationBlueprintSwitch`.
-- Exception classes end with `Error`: `IntegrationBlueprintApiClientError`,
+  `TtlockBleSensor`, `TtlockBleBinarySensor`,
+  `TtlockBleSwitch`.
+- Exception classes end with `Error`: `TtlockBleApiClientError`,
   `…CommunicationError`, `…AuthenticationError`.
 - Private attributes / functions are prefixed with `_`.
 
@@ -68,9 +75,9 @@ Banned: `typing.Any`, `object` as a value type, bare `dict` / `list` / `tuple` /
 Required:
 
 - `TypedDict` for known dict / JSON shapes (see `data.py` for the canonical
-  examples: `IntegrationBlueprintPost`, `IntegrationBlueprintConfigData`,
-  `IntegrationBlueprintOptionsData`, `IntegrationBlueprintDiagnosticsPayload`).
-- `@dataclass` for structured records (`IntegrationBlueprintData`).
+  examples: `TtlockBlePost`, `TtlockBleConfigData`,
+  `TtlockBleOptionsData`, `TtlockBleDiagnosticsPayload`).
+- `@dataclass` for structured records (`TtlockBleData`).
 - Named `type` aliases for recursive / shared shapes — `JsonPrimitive`,
   `JsonValue`, `JsonObject` in `data.py`.
 - `frozenset[str]` / `tuple[str, ...]` for fixed string collections.
@@ -107,7 +114,7 @@ with a one-line comment explaining the deliberate narrowing — see
 
   if TYPE_CHECKING:
       from collections.abc import Mapping
-      from .data import IntegrationBlueprintConfigData
+      from .data import TtlockBleConfigData
   ```
 
 - `noqa` comments are reserved for unavoidable framework constraints (e.g.
@@ -165,41 +172,37 @@ with a one-line comment explaining the deliberate narrowing — see
   the bad input, not a downstream traceback (`config_flow._validate` rejects
   malformed credentials before contacting the API).
 - Custom exceptions get the same hierarchy:
-  `IntegrationBlueprintApiClientError` (base) → `…CommunicationError` (timeout,
+  `TtlockBleApiClientError` (base) → `…CommunicationError` (timeout,
   connection, DNS) and `…AuthenticationError` (401/403). Wrap raw upstream
   errors at the API client boundary; everything above only catches the
   custom hierarchy.
 
 ## Coordinator and runtime data
 
-- All API state flows through `entry.runtime_data: IntegrationBlueprintData`
+- All API state flows through `entry.runtime_data: TtlockBleData`
   (`data.py`). Never store integration state in `hass.data`.
-- The coordinator is typed as `DataUpdateCoordinator[IntegrationBlueprintPost]`
+- The coordinator is typed as `DataUpdateCoordinator[TtlockBlePost]`
   (or whatever your real payload TypedDict is). `_async_update_data` returns
   the typed payload; client errors map to `UpdateFailed`,
   authentication errors to `ConfigEntryAuthFailed` (which triggers reauth).
 
-## Config / options / repairs / diagnostics
+## Config / options / diagnostics
 
-- `config_flow.py` carries `user`, `reauth`, `reauth_confirm` and `reconfigure`
-  steps, all sharing one `_validate` helper and one `_credentials_schema`
-  builder.
-- `options_flow.py` holds the single `IntegrationBlueprintOptionsFlow`
-  class. New options keys go into the `IntegrationBlueprintOptionsData`
+- `config_flow.py` carries `user`, `verify_code`, `reauth_confirm` and
+  `reconfigure` steps. They share one `_credentials_schema` builder and one
+  `_async_step_credentials_for_entry` helper for the reauth/reconfigure path.
+- `options_flow.py` holds the single `TtlockBleOptionsFlow`
+  class. New options keys go into the `TtlockBleOptionsData`
   TypedDict in `data.py`.
-- `repairs.py` exposes `async_create_fix_flow`. Sample helpers like
-  `async_raise_deprecated_api_issue` show how to register issues from anywhere
-  in the integration.
-- `diagnostics.py` returns `IntegrationBlueprintDiagnosticsPayload`. Sensitive
+- `diagnostics.py` returns `TtlockBleDiagnosticsPayload`. Sensitive
   keys go into the `TO_REDACT: frozenset[str]` constant.
 
 ## Translations
 
 - Two locales: `en.json` and `pt-BR.json`. `tests/test_translations.py`
   parametrizes over every locale and fails if their nested key sets diverge.
-- Issue strings live under `issues.<issue_id>`; options strings under
-  `options.step.init.data`; flow strings under `config.step.<step_id>`;
-  entity names under `entity.<platform>.<key>.name`.
+- Options strings under `options.step.init.data`; flow strings under
+  `config.step.<step_id>`; entity names under `entity.<platform>.<key>.name`.
 
 ## Pre-commit hooks
 
