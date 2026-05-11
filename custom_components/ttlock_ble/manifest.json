@@ -11,6 +11,8 @@
   "documentation": "https://github.com/roquerodrigo/ha-ttlock-ble",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/roquerodrigo/ha-ttlock-ble/issues",
-  "requirements": ["ttlock-ble==0.1.2"],
-  "version": "0.1.2"
+  "requirements": [
+    "ttlock-ble==0.1.2"
+  ],
+  "version": "1.0.0"
 }

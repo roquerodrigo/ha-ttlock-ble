@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v0.1.2...v1.0.0) (2026-05-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* the integration's domain changes from `integration_blueprint` (the prior template-fork release line, versions 0.1.x) to `ttlock_ble`. Existing installs from the template phase cannot upgrade in place; remove the old entry and add the new TTLock BLE integration.
+
+### Features
+
+* TTLock BLE Home Assistant integration ([67becd1](https://github.com/roquerodrigo/ha-ttlock-ble/commit/67becd1e652537a6df4ba78ba837d38a51450426))
+
+
+### Bug Fixes
+
+* **deps:** restore serialx (imported at module load by HA usb component) ([032875c](https://github.com/roquerodrigo/ha-ttlock-ble/commit/032875ccc792613a0384bd23cfbf80952766d5b1))
+
 ## [0.1.2](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v0.1.1...v0.1.2) (2026-05-11)
 
 
