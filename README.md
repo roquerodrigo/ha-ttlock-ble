@@ -118,8 +118,10 @@ This wires ruff + basic file hygiene checks (`.pre-commit-config.yaml`) into eve
 ## CI
 
 - **`lint.yml`** — ruff (check + format) and mypy (Python 3.14)
+- **`tests.yml`** — pytest with the 95 % coverage gate
 - **`validate.yml`** — `hassfest` + HACS validation; push/PR to `main` and a daily cron
 - **`codeql.yml`** — GitHub CodeQL security scan; push/PR to `main` and a weekly cron
+- **`release.yml`** — release-please opens a release PR on every push to `main` based on conventional commits
 
 ## License
 
