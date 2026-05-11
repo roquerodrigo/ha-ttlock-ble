@@ -9,3 +9,4 @@ homeassistant==2026.5.1
 mypy==2.1.0
 pre-commit==4.6.0
 ruff==0.15.12
+serialx==1.7.1
