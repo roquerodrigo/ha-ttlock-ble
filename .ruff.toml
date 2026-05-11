@@ -1,0 +1,38 @@
+# The contents of this file is based on https://github.com/home-assistant/core/blob/dev/pyproject.toml
+
+target-version = "py314"
+
+[lint]
+select = [
+    "ALL",
+]
+
+ignore = [
+    "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+    "D203", # no-blank-line-before-class (incompatible with formatter)
+    "D212", # multi-line-summary-first-line (incompatible with formatter)
+    "COM812", # incompatible with formatter
+    "ISC001", # incompatible with formatter
+]
+
+[lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[lint.pyupgrade]
+keep-runtime-typing = true
+
+[lint.mccabe]
+max-complexity = 25
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",    # assert is normal in pytest
+    "S105",    # hardcoded-password-string is fine for fake test credentials
+    "S106",    # hardcoded-password-func-arg is fine for fake test credentials
+    "D",       # no docstrings required in tests
+    "ANN",     # no type annotations required in tests
+    "ARG001",  # fixtures are used implicitly by pytest
+    "PLC0415", # local imports inside fixtures are intentional
+    "SLF001",  # testing private HA attrs and internal methods is intentional
+    "PLR2004", # magic numbers in test assertions are fine
+]

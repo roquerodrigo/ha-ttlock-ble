@@ -1,0 +1,64 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Set up Integration Blueprint",
+                "description": "Enter your credentials to connect to the API.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate Integration Blueprint",
+                "description": "Your credentials are no longer valid. Enter the updated credentials.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure Integration Blueprint",
+                "description": "Update the credentials for this entry.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
+            }
+        },
+        "error": {
+            "auth": "Username/Password is wrong.",
+            "connection": "Unable to connect to the server.",
+            "unknown": "Unknown error occurred."
+        },
+        "abort": {
+            "already_configured": "This account is already configured.",
+            "reauth_successful": "Re-authentication was successful.",
+            "reconfigure_successful": "Reconfiguration was successful."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Integration Blueprint options",
+                "description": "Tune polling and other behaviour for this entry.",
+                "data": {
+                    "scan_interval": "Polling interval (seconds)"
+                }
+            }
+        }
+    },
+    "issues": {
+        "deprecated_api": {
+            "title": "Deprecated API endpoint in use",
+            "fix_flow": {
+                "step": {
+                    "confirm": {
+                        "title": "Switch to the supported API",
+                        "description": "The endpoint this integration was using has been deprecated. Click submit to acknowledge; update the integration's config to use the new endpoint."
+                    }
+                }
+            }
+        }
+    }
+}

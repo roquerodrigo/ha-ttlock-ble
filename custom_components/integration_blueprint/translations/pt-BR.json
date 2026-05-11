@@ -1,0 +1,64 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configurar Integration Blueprint",
+                "description": "Informe suas credenciais para conectar à API.",
+                "data": {
+                    "username": "Usuário",
+                    "password": "Senha"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-autenticar Integration Blueprint",
+                "description": "Suas credenciais não são mais válidas. Informe as credenciais atualizadas.",
+                "data": {
+                    "username": "Usuário",
+                    "password": "Senha"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigurar Integration Blueprint",
+                "description": "Atualize as credenciais desta entrada.",
+                "data": {
+                    "username": "Usuário",
+                    "password": "Senha"
+                }
+            }
+        },
+        "error": {
+            "auth": "Usuário ou senha incorretos.",
+            "connection": "Não foi possível conectar ao servidor.",
+            "unknown": "Ocorreu um erro desconhecido."
+        },
+        "abort": {
+            "already_configured": "Esta conta já está configurada.",
+            "reauth_successful": "Re-autenticação concluída com sucesso.",
+            "reconfigure_successful": "Reconfiguração concluída com sucesso."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Opções do Integration Blueprint",
+                "description": "Ajuste polling e outros comportamentos desta entrada.",
+                "data": {
+                    "scan_interval": "Intervalo de polling (segundos)"
+                }
+            }
+        }
+    },
+    "issues": {
+        "deprecated_api": {
+            "title": "Endpoint da API depreciado em uso",
+            "fix_flow": {
+                "step": {
+                    "confirm": {
+                        "title": "Migrar para a API suportada",
+                        "description": "O endpoint usado por esta integração foi depreciado. Clique em enviar para confirmar; atualize a configuração da integração para usar o novo endpoint."
+                    }
+                }
+            }
+        }
+    }
+}

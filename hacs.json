@@ -1,0 +1,5 @@
+{
+    "name": "Integration Blueprint",
+    "homeassistant": "2026.5.1",
+    "hacs": "2.0.5"
+}
