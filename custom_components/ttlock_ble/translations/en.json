@@ -59,8 +59,8 @@
     },
     "entity": {
         "binary_sensor": {
-            "connection": {
-                "name": "Bluetooth connection"
+            "presence": {
+                "name": "Bluetooth presence"
             }
         },
         "lock": {
@@ -71,19 +71,6 @@
         "sensor": {
             "battery": {
                 "name": "Battery"
-            }
-        },
-        "event": {
-            "operation": {
-                "name": "Operation",
-                "state_attributes": {
-                    "event_type": {
-                        "state": {
-                            "operation_success": "Operation succeeded",
-                            "operation_failed": "Operation failed"
-                        }
-                    }
-                }
             }
         }
     }

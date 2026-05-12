@@ -135,14 +135,11 @@ def mock_ble_resolver(mock_ble_device: MagicMock) -> Generator[MagicMock]:
 def mock_ttlock_client() -> Generator[MagicMock]:
     """Patch `TTLockClient.from_ble_device` returning a controllable mock."""
     instance = MagicMock(name="TTLockClient")
-    instance.is_connected = True
     instance.connect = AsyncMock(return_value=None)
     instance.disconnect = AsyncMock(return_value=None)
     instance.query_state = AsyncMock(return_value=(0, 80))
     instance.lock = AsyncMock(return_value=None)
     instance.unlock = AsyncMock(return_value=None)
-    instance.add_event_listener = MagicMock(return_value=None)
-    instance.remove_event_listener = MagicMock(return_value=None)
     with patch("custom_components.ttlock_ble.connection.TTLockClient") as cls:
         cls.from_ble_device = MagicMock(return_value=instance)
         yield instance
@@ -152,12 +149,9 @@ def mock_ttlock_client() -> Generator[MagicMock]:
 def mock_ttlock_connection() -> Generator[MagicMock]:
     """Mock the whole `TtlockBleConnection` class at the integration setup site."""
     instance = MagicMock(name="TtlockBleConnection")
-    instance.async_start = AsyncMock(return_value=None)
-    instance.async_stop = AsyncMock(return_value=None)
     instance.async_query_state = AsyncMock(return_value=(0, 80))
     instance.async_lock = AsyncMock(return_value=None)
     instance.async_unlock = AsyncMock(return_value=None)
-    instance.is_connected = True
     with patch("custom_components.ttlock_ble.TtlockBleConnection") as cls:
         cls.return_value = instance
         yield instance

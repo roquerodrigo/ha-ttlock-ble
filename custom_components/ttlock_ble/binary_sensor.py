@@ -1,4 +1,4 @@
-"""Binary sensor platform for ttlock_ble — live BLE connection state."""
+"""Binary sensor platform for ttlock_ble — Bluetooth presence."""
 
 from __future__ import annotations
 
@@ -8,20 +8,28 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.components.bluetooth import (
+    BluetoothCallbackMatcher,
+    BluetoothScanningMode,
+    async_address_present,
+    async_register_callback,
+    async_track_unavailable,
+)
 from homeassistant.const import EntityCategory
 from homeassistant.core import callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .connection import connection_signal
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
+    from homeassistant.components.bluetooth import (
+        BluetoothChange,
+        BluetoothServiceInfoBleak,
+    )
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from ttlock_ble import VirtualKey
 
-    from .connection import TtlockBleConnection
     from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry
 
@@ -31,18 +39,18 @@ async def async_setup_entry(
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create one connection binary sensor per `VirtualKey`."""
+    """Create one presence binary sensor per `VirtualKey`."""
     data = entry.runtime_data
     async_add_entities(
-        TtlockBleConnectionBinarySensor(data.coordinator, key)
+        TtlockBlePresenceBinarySensor(data.coordinator, key)
         for key in data.virtual_keys
     )
 
 
-class TtlockBleConnectionBinarySensor(TtlockBleEntity, BinarySensorEntity):
-    """Reports the live BLE link state for one lock."""
+class TtlockBlePresenceBinarySensor(TtlockBleEntity, BinarySensorEntity):
+    """Reports if the lock is currently advertising in BLE range."""
 
-    _attr_translation_key = "connection"
+    _attr_translation_key = "presence"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -53,35 +61,55 @@ class TtlockBleConnectionBinarySensor(TtlockBleEntity, BinarySensorEntity):
     ) -> None:
         """Bind the binary sensor to its key + coordinator."""
         super().__init__(coordinator, key)
-        self._attr_unique_id = f"{key.lockMac}_connection"
+        self._attr_unique_id = f"{key.lockMac}_presence"
 
     @property
     def is_on(self) -> bool:
-        """True iff the persistent BLE session to this lock is currently up."""
-        return self._connection.is_connected
+        """True iff the lock has advertised in HA's recent-tracking window."""
+        return async_address_present(
+            self.hass,
+            self._key.lockMac,
+            connectable=True,
+        )
 
     @property
     def icon(self) -> str:
-        """Bluetooth icon that mirrors the live link state."""
-        return "mdi:bluetooth-connect" if self.is_on else "mdi:bluetooth-off"
+        """Bluetooth icon that mirrors the live presence state."""
+        return "mdi:bluetooth" if self.is_on else "mdi:bluetooth-off"
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to live BLE connect/disconnect transitions."""
+        """Subscribe to advertisement + unavailable callbacks for live updates."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            async_dispatcher_connect(
+            async_register_callback(
                 self.hass,
-                connection_signal(self._key.lockMac),
-                self._on_connection_state,
+                self._on_advertisement,
+                BluetoothCallbackMatcher(
+                    address=self._key.lockMac,
+                    connectable=True,
+                ),
+                BluetoothScanningMode.PASSIVE,
+            ),
+        )
+        self.async_on_remove(
+            async_track_unavailable(
+                self.hass,
+                self._on_unavailable,
+                self._key.lockMac,
+                connectable=True,
             ),
         )
 
     @callback
-    def _on_connection_state(self, _connected: bool) -> None:  # noqa: FBT001
-        """Push the freshest BLE link state into HA's state machine."""
+    def _on_advertisement(
+        self,
+        _service_info: BluetoothServiceInfoBleak,
+        _change: BluetoothChange,
+    ) -> None:
+        """Lock is broadcasting — refresh state."""
         self.async_write_ha_state()
 
-    @property
-    def _connection(self) -> TtlockBleConnection:
-        """Return the persistent BLE connection wrapper for this lock."""
-        return self.coordinator.connections[self._key.lockMac]
+    @callback
+    def _on_unavailable(self, _service_info: BluetoothServiceInfoBleak) -> None:
+        """Lock has stopped broadcasting — refresh state."""
+        self.async_write_ha_state()
