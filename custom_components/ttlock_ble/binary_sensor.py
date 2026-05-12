@@ -60,6 +60,11 @@ class TtlockBleConnectionBinarySensor(TtlockBleEntity, BinarySensorEntity):
         """True iff the persistent BLE session to this lock is currently up."""
         return self._connection.is_connected
 
+    @property
+    def icon(self) -> str:
+        """Bluetooth icon that mirrors the live link state."""
+        return "mdi:bluetooth-connect" if self.is_on else "mdi:bluetooth-off"
+
     async def async_added_to_hass(self) -> None:
         """Subscribe to live BLE connect/disconnect transitions."""
         await super().async_added_to_hass()

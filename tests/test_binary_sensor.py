@@ -55,6 +55,25 @@ async def test_connection_binary_sensor_is_diagnostic(
     assert entry.entity_category == er.EntityCategory.DIAGNOSTIC
 
 
+async def test_connection_binary_sensor_icon_reflects_state(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    mock_ttlock_connection,
+) -> None:
+    """Icon switches between bluetooth-connect and bluetooth-off."""
+    state = hass.states.async_all("binary_sensor")[0]
+    assert state.attributes["icon"] == "mdi:bluetooth-connect"
+    mock_ttlock_connection.is_connected = False
+    async_dispatcher_send(
+        hass,
+        connection_signal(sample_virtual_key.lockMac),
+        False,  # noqa: FBT003
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).attributes["icon"] == "mdi:bluetooth-off"
+
+
 async def test_connection_binary_sensor_updates_on_signal(
     hass,
     setup_integration,
