@@ -1,0 +1,20 @@
+name: Auto-assign owner
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  assign:
+    name: Assign @roquerodrigo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add assignee
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          GH_REPO: ${{ github.repository }}
+        run: gh pr edit "$NUMBER" --add-assignee roquerodrigo
