@@ -60,7 +60,7 @@
     "entity": {
         "binary_sensor": {
             "presence": {
-                "name": "Presença Bluetooth"
+                "name": "Disponível"
             }
         },
         "lock": {
