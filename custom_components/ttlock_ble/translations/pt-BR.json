@@ -58,6 +58,11 @@
         }
     },
     "entity": {
+        "binary_sensor": {
+            "connection": {
+                "name": "Conexão Bluetooth"
+            }
+        },
         "lock": {
             "lock": {
                 "name": "Fechadura"

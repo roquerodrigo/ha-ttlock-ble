@@ -9,12 +9,20 @@ from ttlock_ble import LockEvent, TTLockError
 
 from custom_components.ttlock_ble.connection import (
     TtlockBleConnection,
+    connection_signal,
     event_signal,
 )
 
 
 def test_event_signal_lowercases_mac() -> None:
     assert event_signal("AA:BB:CC:DD:EE:FF") == "ttlock_ble_event_aa:bb:cc:dd:ee:ff"
+
+
+def test_connection_signal_lowercases_mac() -> None:
+    assert (
+        connection_signal("AA:BB:CC:DD:EE:FF")
+        == "ttlock_ble_connection_aa:bb:cc:dd:ee:ff"
+    )
 
 
 async def test_is_connected_false_before_start(hass, sample_virtual_key) -> None:
@@ -308,3 +316,45 @@ async def test_on_disconnected_wakes_maintain_loop(
     assert not conn._disconnected.is_set()
     conn._on_disconnected(mock_ttlock_client)
     assert conn._disconnected.is_set()
+
+
+async def test_connection_signal_fires_on_connect_and_disconnect(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """Successful connect emits True; tearing the session down emits False."""
+    received: list[bool] = []
+    async_dispatcher_connect(
+        hass,
+        connection_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    await hass.async_block_till_done()
+    assert received == [True]
+    await conn.async_stop()
+    await hass.async_block_till_done()
+    assert received == [True, False]
+
+
+async def test_connection_signal_not_emitted_when_connect_fails(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """If BLE connect raises, nothing is broadcast — state stayed `down`."""
+    received: list[bool] = []
+    async_dispatcher_connect(
+        hass,
+        connection_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    mock_ttlock_client.connect = AsyncMock(side_effect=TTLockError("ble fail"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    await hass.async_block_till_done()
+    assert received == []
