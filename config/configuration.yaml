@@ -3,7 +3,17 @@ default_config:
 homeassistant:
   debug: true
 
+http:
+  server_port: 8124
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 127.0.0.1
+    - 192.168.50.0/24
+
 logger:
   default: info
   logs:
     custom_components.ttlock_ble: debug
+    ttlock_ble: debug
+    homeassistant.components.bluetooth: debug
+    habluetooth: debug
