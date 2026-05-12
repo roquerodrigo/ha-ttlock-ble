@@ -68,51 +68,6 @@ async def test_battery_sensor_has_unique_id(
     assert entry.unique_id == f"{sample_virtual_key.lockMac}_battery"
 
 
-async def test_battery_sensor_updates_from_push_event(
-    hass,
-    setup_integration,
-    sample_virtual_key,
-) -> None:
-    """A push event carrying `battery` updates the sensor without polling."""
-    from homeassistant.helpers.dispatcher import async_dispatcher_send
-    from ttlock_ble import LockEvent
-
-    from custom_components.ttlock_ble.connection import event_signal
-
-    state = hass.states.async_all("sensor")[0]
-    assert state.state == "80"
-    pushed = LockEvent.from_payload(0x14, 1, bytes.fromhex("2a0102"))  # battery=0x2a
-    async_dispatcher_send(
-        hass,
-        event_signal(sample_virtual_key.lockMac),
-        pushed,
-    )
-    await hass.async_block_till_done()
-    assert hass.states.get(state.entity_id).state == "42"
-
-
-async def test_battery_sensor_ignores_push_event_without_battery(
-    hass,
-    setup_integration,
-    sample_virtual_key,
-) -> None:
-    """An event with no decoded battery byte must not clobber the last value."""
-    from homeassistant.helpers.dispatcher import async_dispatcher_send
-    from ttlock_ble import LockEvent
-
-    from custom_components.ttlock_ble.connection import event_signal
-
-    state = hass.states.async_all("sensor")[0]
-    assert state.state == "80"
-    async_dispatcher_send(
-        hass,
-        event_signal(sample_virtual_key.lockMac),
-        LockEvent(cmd_echo=0x47, status=1, data=b""),
-    )
-    await hass.async_block_till_done()
-    assert hass.states.get(state.entity_id).state == "80"
-
-
 async def test_battery_sensor_is_diagnostic(
     hass,
     setup_integration,

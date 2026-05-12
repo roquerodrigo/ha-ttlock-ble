@@ -59,8 +59,8 @@
     },
     "entity": {
         "binary_sensor": {
-            "connection": {
-                "name": "Conexão Bluetooth"
+            "presence": {
+                "name": "Disponível"
             }
         },
         "lock": {
@@ -71,19 +71,6 @@
         "sensor": {
             "battery": {
                 "name": "Bateria"
-            }
-        },
-        "event": {
-            "operation": {
-                "name": "Operação",
-                "state_attributes": {
-                    "event_type": {
-                        "state": {
-                            "operation_success": "Operação concluída",
-                            "operation_failed": "Falha na operação"
-                        }
-                    }
-                }
             }
         }
     }
