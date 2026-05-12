@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v1.0.0...v1.1.0) (2026-05-12)
+
+
+### Features
+
+* add Bluetooth connectivity binary sensor per lock ([dd9a536](https://github.com/roquerodrigo/ha-ttlock-ble/commit/dd9a536467fd6d201249fd8d4ab43c37092cbf10))
+* **binary_sensor:** add Bluetooth icon to the connection sensor ([e4118cd](https://github.com/roquerodrigo/ha-ttlock-ble/commit/e4118cdc0780f2e02074660a29d072208656d4f8))
+
 ## [1.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v0.1.2...v1.0.0) (2026-05-11)
 
 
