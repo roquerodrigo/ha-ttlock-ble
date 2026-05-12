@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v1.1.0...v2.0.0) (2026-05-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* the operation event entity is gone. Push-driven event automations need to be replaced with state-change triggers on the lock entity.
+
+### Features
+
+* switch to on-demand BLE sessions to save lock battery ([54e51a5](https://github.com/roquerodrigo/ha-ttlock-ble/commit/54e51a55f0c23d8e6ddf66c574f34c98af9e21ab))
+
 ## [1.1.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v1.0.0...v1.1.0) (2026-05-12)
 
 
