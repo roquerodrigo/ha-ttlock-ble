@@ -45,6 +45,11 @@ def event_signal(mac: str) -> str:
     return f"{DOMAIN}_event_{mac.lower()}"
 
 
+def connection_signal(mac: str) -> str:
+    """Dispatcher signal that carries BLE up/down transitions for `mac`."""
+    return f"{DOMAIN}_connection_{mac.lower()}"
+
+
 class TtlockBleConnection:
     """Maintain a long-lived BLE session with one TTLock lock."""
 
@@ -192,6 +197,7 @@ class TtlockBleConnection:
         client.add_event_listener(self._on_event)
         self._client = client
         self._disconnected.clear()
+        self._broadcast_connection_state(connected=True)
         return client
 
     async def _async_disconnect_locked(self) -> None:
@@ -200,9 +206,18 @@ class TtlockBleConnection:
             return
         client = self._client
         self._client = None
+        self._broadcast_connection_state(connected=False)
         client.remove_event_listener(self._on_event)
         with contextlib.suppress(Exception):
             await client.disconnect()
+
+    def _broadcast_connection_state(self, *, connected: bool) -> None:
+        """Notify subscribers that the BLE link to this lock just changed."""
+        async_dispatcher_send(
+            self._hass,
+            connection_signal(self._key.lockMac),
+            connected,
+        )
 
     def _on_event(self, event: LockEvent) -> None:
         """Forward a push event onto HA's dispatcher (called by the BLE layer)."""
