@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/ha-integration-blueprint.iml" filepath="$PROJECT_DIR$/.idea/ha-integration-blueprint.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/ha-ttlock-ble.iml" filepath="$PROJECT_DIR$/.idea/ha-ttlock-ble.iml" />
     </modules>
   </component>
 </project>
