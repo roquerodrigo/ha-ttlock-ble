@@ -11,14 +11,16 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from .connection import event_signal
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ttlock_ble import VirtualKey
+    from ttlock_ble import LockEvent, VirtualKey
 
     from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry
@@ -37,7 +39,7 @@ async def async_setup_entry(
 
 
 class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
-    """Battery level reported by the lock — refreshed on each coordinator poll."""
+    """Battery level reported by the lock — refreshed on poll and on every push."""
 
     _attr_translation_key = "battery"
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -56,11 +58,30 @@ class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
         self._attr_native_value: int | None = None
         self._sync_from_coordinator()
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to push-event notifications for the lock's MAC."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                event_signal(self._key.lockMac),
+                self._on_lock_event,
+            ),
+        )
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Adopt the coordinator's freshest battery reading, if any."""
         self._sync_from_coordinator()
         super()._handle_coordinator_update()
+
+    @callback
+    def _on_lock_event(self, event: LockEvent) -> None:
+        """Adopt the battery byte the lock embedded in its push payload."""
+        if event.battery is None:
+            return
+        self._attr_native_value = event.battery
+        self.async_write_ha_state()
 
     def _sync_from_coordinator(self) -> None:
         """Copy `battery_level` from the coordinator snapshot, if known."""

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from homeassistant.core import CALLBACK_TYPE
+
     from custom_components.ttlock_ble.connection import TtlockBleConnection
     from custom_components.ttlock_ble.coordinator import (
         TtlockBleDataUpdateCoordinator,
@@ -23,3 +25,4 @@ class TtlockBleData:
     virtual_keys: list[VirtualKey]
     connections: dict[str, TtlockBleConnection]
     coordinator: TtlockBleDataUpdateCoordinator
+    bluetooth_unsubs: list[CALLBACK_TYPE]

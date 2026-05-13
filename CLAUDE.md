@@ -38,29 +38,24 @@ Verify the pairing on PyPI before committing: the `requires_dist` of `pytest-hom
 
 ## Architecture
 
-The integration follows the HA `DataUpdateCoordinator` pattern with
-**on-demand BLE sessions** (no persistent connection — the previous
-always-on model was draining the lock's battery):
+The integration follows the HA `DataUpdateCoordinator` pattern:
 
 ```
-config_flow.py    → cloud-bootstraps credentials, requests 2FA when needed,
-                     pulls the per-lock VirtualKeys, creates the ConfigEntry
-__init__.py       → instantiates one TtlockBleConnection per lock and a
-                     DataUpdateCoordinator, performs the first refresh
-connection.py     → opens a fresh BLE session for every query/lock/unlock,
-                     then tears it down. Serializes via asyncio.Lock.
-coordinator.py    → polls every scan_interval seconds (default 1h) via
-                     each connection's async_query_state
-lock.py           → LockEntity backed by on-demand BLE commands; optimistic
-                     update + COMMAND_SETTLE_SECONDS settle window
-sensor.py         → BatterySensor refreshed from coordinator data
-binary_sensor.py  → Presence sensor driven by passive Bluetooth
-                     advertisements (no BLE connection)
+config_flow.py   → cloud-bootstraps credentials, requests 2FA when needed,
+                    pulls the per-lock VirtualKeys, creates the ConfigEntry
+__init__.py      → instantiates one TtlockBleConnection per lock and a
+                    DataUpdateCoordinator, performs the first refresh
+connection.py    → owns the long-lived BLE session, reconnect loop,
+                    cooldown, and push-event dispatch
+coordinator.py   → polls every scan_interval seconds via each connection
+lock.py          → LockEntity backed by the BLE connection
+sensor.py        → BatterySensor backed by the same poll + push events
+event.py         → EventEntity that surfaces decoded LockEvent pushes
 ```
 
 ### Entry typing
 
-`data.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]` and the `TtlockBleData(keys, virtual_keys, connections, coordinator)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+`data.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]` and the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 ### Config flow surface
 
@@ -90,24 +85,11 @@ binary_sensor.py  → Presence sensor driven by passive Bluetooth
 
 `connection.py` defines `TtlockBleConnection`, one per `VirtualKey`. Each owns:
 
+- A long-lived `TTLockClient` (the SDK).
 - An `asyncio.Lock` serializing query/lock/unlock commands.
-- No long-lived state — every public call opens a fresh `TTLockClient`,
-  runs one operation, then disconnects in a `finally` block.
-
-The lock therefore stays asleep between operations, which the TTLock
-firmware treats as battery-saving idle. There is no reconnect loop, no
-cooldown, no push-event subscription — those existed to keep the
-old persistent session healthy. Push-event-driven state updates are
-gone; mid-cycle state changes (keypad, fingerprint) surface on the next
-hourly coordinator poll.
-
-### Bluetooth presence
-
-`binary_sensor.py` registers a passive advertisement callback and an
-`async_track_unavailable` watcher per lock. Neither opens a BLE
-connection — they listen to broadcasts the lock already emits while
-idle. The sensor's `is_on` delegates to
-`bluetooth.async_address_present` so the state is always live.
+- A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
+- A drop-storm cooldown: after `MAX_SHORT_DROPS` (3) sessions shorter than `SHORT_CONNECT_THRESHOLD` (30 s), sleeps `LONG_BACKOFF_SECONDS` (300 s) before retrying. `async_query_state` honours `_cooldown_until`; user-driven `async_lock`/`async_unlock` bypass it.
+- A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe.
 
 ### Diagnostics
 
