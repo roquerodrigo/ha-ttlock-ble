@@ -242,9 +242,10 @@ which `release-please` parses to bump the version and generate `CHANGELOG.md`:
 
 - Ruff configuration lives in `.ruff.toml` with `select = ["ALL"]`.
 - Mypy configuration lives in `mypy.ini`. Both run from `scripts/lint`.
-- After every change run `scripts/lint && pytest`. Both gates mirror CI
+- After every change run `scripts/lint && scripts/test`. Both gates mirror CI
   (`.github/workflows/lint.yml` + `tests.yml`).
-- Tests live in `tests/`, mirroring the production layout. The 95 % coverage
-  gate (`pytest.ini`) prevents untested code from sneaking in. When a test
+- Tests live in `tests/`, mirroring the production layout. `scripts/test`
+  enforces a 95 % coverage gate (the `--cov*` flags live in the script, not
+  `pytest.ini`, so PyCharm's "Run with Coverage" works). When a test
   exercises a state that is impossible under the new types, update or remove
   it — never weaken the type to satisfy the test.

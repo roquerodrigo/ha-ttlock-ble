@@ -18,11 +18,11 @@ This file deliberately avoids restating those rules — it only adds:
 **After every code change, always run lint then tests, in that order, before declaring the task done:**
 
 ```bash
-scripts/lint && pytest
+scripts/lint && scripts/test
 ```
 
 - `scripts/lint` runs `ruff format`, `ruff check --fix` and `mypy` (`mypy.ini`). Fix any failure and re-run before moving on.
-- `pytest` enforces a **95 % coverage gate** (`pytest.ini`).
+- `scripts/test` runs `pytest` with the `--cov` flags and enforces a **95 % coverage gate**. The flags live in the script (not `pytest.ini`) so PyCharm's "Run with Coverage" can drive `coverage.py` itself without colliding with `pytest-cov`.
 
 Both gates mirror CI (`.github/workflows/lint.yml`). Skip this only when the change literally cannot affect lint or tests (e.g., README-only edits).
 

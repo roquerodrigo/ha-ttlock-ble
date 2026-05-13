@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Auto-use ./.venv if present so callers don't need to `source activate`.
+if [ -d "${PWD}/.venv" ]; then
+    export PATH="${PWD}/.venv/bin:${PATH}"
+    export VIRTUAL_ENV="${PWD}/.venv"
+fi
+
+# Coverage flags live here (not in pytest.ini) so PyCharm's built-in
+# "Run with Coverage" can drive coverage.py itself without colliding with
+# pytest-cov's tracer.
+pytest \
+    --cov=custom_components/ttlock_ble \
+    --cov-report=term-missing \
+    --cov-fail-under=95 \
+    "$@"
