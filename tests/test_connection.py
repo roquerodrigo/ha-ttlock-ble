@@ -318,6 +318,38 @@ async def test_on_disconnected_wakes_maintain_loop(
     assert conn._disconnected.is_set()
 
 
+async def test_maintain_loop_enters_cooldown_on_drop(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """After any disconnect, the maintain loop sets `_cooldown_until` in the future."""
+    import time
+
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with patch.multiple(
+        "custom_components.ttlock_ble.connection",
+        RECONNECT_INITIAL_BACKOFF=0.005,
+        RECONNECT_MAX_BACKOFF=0.01,
+        RECONNECT_COOLDOWN_SECONDS=5.0,
+    ):
+        await conn.async_start()
+        # Let the loop connect and arm `_disconnected.wait()`.
+        for _ in range(20):
+            await asyncio.sleep(0.005)
+            if mock_ttlock_client.connect.await_count >= 1:
+                break
+        # Trigger a drop; the loop should enter cooldown next tick.
+        conn._on_disconnected(mock_ttlock_client)
+        for _ in range(20):
+            await asyncio.sleep(0.005)
+            if conn._cooldown_until > 0:
+                break
+        assert conn._cooldown_until > time.monotonic()
+        await conn.async_stop()
+
+
 async def test_connection_signal_fires_on_connect_and_disconnect(
     hass,
     sample_virtual_key,

@@ -35,9 +35,7 @@ if TYPE_CHECKING:
 
 RECONNECT_INITIAL_BACKOFF = 5.0
 RECONNECT_MAX_BACKOFF = 300.0
-SHORT_CONNECT_THRESHOLD = 30.0
-MAX_SHORT_DROPS = 3
-LONG_BACKOFF_SECONDS = 300.0
+RECONNECT_COOLDOWN_SECONDS = 300.0
 
 
 def event_signal(mac: str) -> str:
@@ -62,7 +60,6 @@ class TtlockBleConnection:
         self._task: asyncio.Task[None] | None = None
         self._closing = False
         self._disconnected = asyncio.Event()
-        self._consecutive_short_drops = 0
         self._cooldown_until: float = 0.0
 
     @property
@@ -233,14 +230,14 @@ class TtlockBleConnection:
 
     async def _async_maintain(self) -> None:
         """
-        Background loop that reconnects on drop with exponential backoff.
+        Background loop that opens one BLE session and cools down on drop.
 
-        Tracks the duration of each BLE session. If `MAX_SHORT_DROPS`
-        consecutive sessions stayed up for less than
-        `SHORT_CONNECT_THRESHOLD` seconds, sleeps `LONG_BACKOFF_SECONDS`
-        before retrying — locks that drop us aggressively (TTLock's
-        idle-sleep behaviour) would otherwise produce a reconnect storm
-        that drains the lock's battery.
+        After any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` before
+        reconnecting. No immediate retry — locks that drop us aggressively
+        (TTLock's idle-sleep) would otherwise produce a reconnect storm
+        that drains the lock's battery. Connect failures (device not yet
+        advertising) use a separate exponential backoff so first-boot
+        scans don't wait the full cooldown.
         """
         backoff = RECONNECT_INITIAL_BACKOFF
         while not self._closing:
@@ -252,26 +249,12 @@ class TtlockBleConnection:
                     backoff = min(backoff * 2, RECONNECT_MAX_BACKOFF)
                     continue
                 backoff = RECONNECT_INITIAL_BACKOFF
-                connect_time = time.monotonic()
                 await self._disconnected.wait()
-                duration = time.monotonic() - connect_time
-                if duration < SHORT_CONNECT_THRESHOLD:
-                    self._consecutive_short_drops += 1
-                else:
-                    self._consecutive_short_drops = 0
-                if self._consecutive_short_drops >= MAX_SHORT_DROPS:
-                    LOGGER.info(
-                        "Lock %s keeps dropping after %.1fs; backing off %ds",
-                        self._key.lockMac,
-                        duration,
-                        int(LONG_BACKOFF_SECONDS),
-                    )
-                    self._consecutive_short_drops = 0
-                    self._cooldown_until = time.monotonic() + LONG_BACKOFF_SECONDS
-                    try:
-                        await asyncio.sleep(LONG_BACKOFF_SECONDS)
-                    finally:
-                        self._cooldown_until = 0.0
+                self._cooldown_until = time.monotonic() + RECONNECT_COOLDOWN_SECONDS
+                try:
+                    await asyncio.sleep(RECONNECT_COOLDOWN_SECONDS)
+                finally:
+                    self._cooldown_until = 0.0
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
