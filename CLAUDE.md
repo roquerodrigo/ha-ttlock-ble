@@ -68,7 +68,7 @@ event.py         → EventEntity that surfaces decoded LockEvent pushes
 
 ### Options flow
 
-`options_flow.py` exposes `scan_interval` (seconds; min 30, default 300). Changing it triggers `async_reload_entry`, which re-instantiates the coordinator with the new `update_interval`.
+`options_flow.py` exposes `scan_interval` (seconds; min 60, default 3600). Changing it triggers `async_reload_entry`, which re-instantiates the coordinator with the new `update_interval`.
 
 ### API client
 
@@ -88,7 +88,7 @@ event.py         → EventEntity that surfaces decoded LockEvent pushes
 - A long-lived `TTLockClient` (the SDK).
 - An `asyncio.Lock` serializing query/lock/unlock commands.
 - A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
-- A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` (300 s) before reconnecting — no immediate retry. `async_query_state` honours `_cooldown_until`; user-driven `async_lock`/`async_unlock` bypass it.
+- A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` (1 h) before reconnecting — no immediate retry. `async_query_state` honours `_cooldown_until`; user-driven `async_lock`/`async_unlock` bypass it.
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe.
 
 ### Diagnostics

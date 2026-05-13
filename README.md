@@ -48,7 +48,7 @@ The Bluetooth radio HA already manages (USB dongle, built-in adapter, or proxy) 
 
 Settings → Devices & Services → TTLock BLE → **Configure** lets you tune:
 
-- `scan_interval` (default 300 s, minimum 60 s) — how often the coordinator polls the lock for state when no push events are arriving.
+- `scan_interval` (default 3600 s, minimum 60 s) — how often the coordinator polls the lock for state when no push events are arriving.
 
 To edit credentials without removing and re-adding, use the integration's three-dot menu → **Reconfigure**.
 
