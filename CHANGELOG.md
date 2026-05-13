@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v2.0.0...v3.0.0) (2026-05-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* reverts the v2.0 on-demand BLE session model. Battery drain returns to the v1.x persistent-session profile in exchange for real-time state updates between polls.
+
+### Features
+
+* restore persistent BLE session with event-driven state updates ([49b9d81](https://github.com/roquerodrigo/ha-ttlock-ble/commit/49b9d81d4720e3154eee7c8298939a99bcb98b18))
+
 ## [2.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v1.1.0...v2.0.0) (2026-05-12)
 
 
