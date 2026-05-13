@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.0.0...v3.0.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* cool down after any BLE drop instead of retrying 3 times ([cf26eb5](https://github.com/roquerodrigo/ha-ttlock-ble/commit/cf26eb5291e7d881f80b36c03abf88da4afccf7e))
+* stretch BLE timings so polls don't fight the lock's idle-sleep ([8f02d92](https://github.com/roquerodrigo/ha-ttlock-ble/commit/8f02d92a4d09a71e803232f87e9308a57e193eaf))
+
 ## [3.0.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v2.0.0...v3.0.0) (2026-05-13)
 
 
