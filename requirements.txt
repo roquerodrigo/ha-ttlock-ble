@@ -1,12 +1,12 @@
 ttlock-ble==0.1.2
-aioesphomeapi==44.23.0
+aioesphomeapi==45.0.0
 aiousbwatcher==1.1.2
-bleak==2.1.1
-bluetooth-adapters==2.1.0
+bleak==3.0.2
+bluetooth-adapters==2.1.1
 colorlog==6.10.1
 dbus-fast==4.0.4
 homeassistant==2026.5.1
 mypy==2.1.0
 pre-commit==4.6.0
 ruff==0.15.12
-serialx==1.7.1
+serialx==1.8.0
