@@ -12,7 +12,7 @@ dev = [
     "aioesphomeapi==45.0.4",
     "aiousbwatcher==1.1.2",
     "bleak==3.0.2",
-    "bluetooth-adapters==2.1.1",
+    "bluetooth-adapters==2.4.0",
     "colorlog==6.10.1",
     "dbus-fast==5.0.14",
     "homeassistant==2026.5.3",
