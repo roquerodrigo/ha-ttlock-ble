@@ -54,9 +54,13 @@ class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
     ) -> None:
         """Bind the sensor to its key + coordinator."""
         super().__init__(coordinator, key)
-        self._attr_unique_id = f"{key.lockMac}_battery"
         self._attr_native_value: int | None = None
         self._sync_from_coordinator()
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_battery"
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to push-event notifications for the lock's MAC."""

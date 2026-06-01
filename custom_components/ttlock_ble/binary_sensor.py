@@ -19,10 +19,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ttlock_ble import VirtualKey
-
     from .connection import TtlockBleConnection
-    from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry
 
 
@@ -46,14 +43,10 @@ class TtlockBleConnectionBinarySensor(TtlockBleEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(
-        self,
-        coordinator: TtlockBleDataUpdateCoordinator,
-        key: VirtualKey,
-    ) -> None:
-        """Bind the binary sensor to its key + coordinator."""
-        super().__init__(coordinator, key)
-        self._attr_unique_id = f"{key.lockMac}_connection"
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_connection"
 
     @property
     def is_on(self) -> bool:

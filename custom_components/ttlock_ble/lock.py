@@ -76,10 +76,14 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         """Bind the entity to its connection + coordinator + key."""
         super().__init__(coordinator, key)
         self._connection = connection
-        self._attr_unique_id = f"{key.lockMac}_lock"
         self._attr_is_locked = None
         self._settle_until: float = 0.0
         self._sync_from_coordinator()
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_lock"
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to push-event notifications for the lock's MAC."""

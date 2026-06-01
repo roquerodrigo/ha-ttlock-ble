@@ -122,8 +122,12 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
     ) -> None:
         """Bind the entity to its key + coordinator."""
         super().__init__(coordinator, key)
-        self._attr_unique_id = f"{key.lockMac}_log"
         self._attr_event_types = LOG_EVENT_TYPES
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_log"
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to the log dispatcher signal."""
