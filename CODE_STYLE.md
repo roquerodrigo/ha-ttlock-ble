@@ -1,8 +1,9 @@
 # Code Style Guide
 
-Style conventions for the `ha-ttlock-ble` project. Run `scripts/lint`
-before committing — it executes `ruff format`, `ruff check --fix` and `mypy`,
-and must exit cleanly. `pytest` (with the 95 % coverage gate) follows.
+Style conventions for the `ha-ttlock-ble` project. Before committing, run
+`uv run ruff format --check .`, `uv run ruff check .` and
+`uv run mypy custom_components/ttlock_ble`; they must exit cleanly.
+`uv run pytest` (with its coverage gate) follows.
 
 **Always read this file before adding or restructuring code.**
 
@@ -67,7 +68,7 @@ should be written:
 
 ## Typing
 
-**Strict typing. No generics, no `Any`.** Mypy on `scripts/lint` enforces this.
+**Strict typing. No generics, no `Any`.** `uv run mypy custom_components/ttlock_ble` enforces this.
 
 Banned: `typing.Any`, `object` as a value type, bare `dict` / `list` / `tuple` /
 `set`, `dict[str, Any]`, `Mapping[str, Any]`.
@@ -206,16 +207,17 @@ with a one-line comment explaining the deliberate narrowing — see
 
 ## Pre-commit hooks
 
-`pre-commit` is a dev dependency (`requirements.txt`) and `.pre-commit-config.yaml`
-mirrors `scripts/lint` (ruff format, ruff check, mypy). Install once per
+`pre-commit` is a dev dependency (`pyproject.toml`) and `.pre-commit-config.yaml`
+mirrors the lint commands (ruff format, ruff check). Install once per
 clone:
 
 ```bash
 pre-commit install
 ```
 
-The hook runs the same gates as CI on every commit. Skip it only on
-emergency `git commit --no-verify` and immediately re-run `scripts/lint`.
+The hook runs the same ruff gates as CI on every commit. Skip it only on
+emergency `git commit --no-verify` and immediately re-run
+`uv run ruff format --check .` and `uv run ruff check .`.
 
 ## Conventional commits
 
@@ -240,12 +242,13 @@ which `release-please` parses to bump the version and generate `CHANGELOG.md`:
 
 ## Linting and verification
 
-- Ruff configuration lives in `.ruff.toml` with `select = ["ALL"]`.
-- Mypy configuration lives in `mypy.ini`. Both run from `scripts/lint`.
-- After every change run `scripts/lint && scripts/test`. Both gates mirror CI
-  (`.github/workflows/lint.yml` + `tests.yml`).
-- Tests live in `tests/`, mirroring the production layout. `scripts/test`
-  enforces a 95 % coverage gate (the `--cov*` flags live in the script, not
-  `pytest.ini`, so PyCharm's "Run with Coverage" works). When a test
-  exercises a state that is impossible under the new types, update or remove
-  it — never weaken the type to satisfy the test.
+- Ruff configuration lives in `pyproject.toml` with `select = ["ALL"]`.
+- Mypy configuration also lives in `pyproject.toml`. Run them directly:
+  `uv run ruff format --check .`, `uv run ruff check .` and
+  `uv run mypy custom_components/ttlock_ble`.
+- After every change run the lint commands above and `uv run pytest`. Both
+  gates mirror CI (`.github/workflows/ci.yml`).
+- Tests live in `tests/`, mirroring the production layout. `uv run pytest`
+  enforces the coverage gate (the `--cov*` flags live in `pyproject.toml`).
+  When a test exercises a state that is impossible under the new types, update
+  or remove it — never weaken the type to satisfy the test.

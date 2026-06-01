@@ -63,11 +63,15 @@ The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silenc
 ```bash
 scripts/setup      # install dependencies (requirements.txt)
 scripts/develop    # start Home Assistant in debug mode with the integration loaded
-scripts/lint       # ruff format + check + mypy
-scripts/test       # pytest with the 95 % coverage gate
+
+# Lint and test directly (config lives in pyproject.toml):
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy custom_components/ttlock_ble
+uv run pytest
 ```
 
-Each script auto-detects `./.venv` and prepends it to `PATH` — no `source .venv/bin/activate` needed.
+Each `scripts/*` helper auto-detects `./.venv` and prepends it to `PATH` — no `source .venv/bin/activate` needed.
 
 HA runs with config in `config/` and `PYTHONPATH` pointing at the repo root. To reset entity/device IDs during development:
 
