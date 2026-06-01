@@ -329,3 +329,77 @@ async def test_lock_has_unique_id(hass, setup_integration, sample_virtual_key) -
     entry = registry.async_get(state.entity_id)
     assert entry is not None
     assert entry.unique_id == f"{sample_virtual_key.lockMac}_lock"
+
+
+async def test_lock_event_unknown_state_does_not_change_ui(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    sample_virtual_key,
+) -> None:
+    """A push tri-state value that is neither locked nor unlocked is ignored."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    state = hass.states.async_all("lock")[0]
+    assert state.state == "locked"
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent(cmd_echo=0x14, status=1, data=b"", lock_state=2),
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_lock_event_forced_query_returns_none_keeps_state(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    sample_virtual_key,
+) -> None:
+    """When the forced re-query yields no state, the UI keeps its last value."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    state = hass.states.async_all("lock")[0]
+    assert state.state == "locked"
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent(cmd_echo=0x47, status=1, data=b""),
+    )
+    await hass.async_block_till_done()
+    mock_ttlock_connection.async_query_state.assert_awaited_with(
+        force_cooldown_bypass=True,
+    )
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
+    hass,
+    sample_virtual_key,
+) -> None:
+    """An empty coordinator snapshot leaves `_attr_is_locked` untouched."""
+    from datetime import timedelta
+    from unittest.mock import MagicMock
+
+    from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.lock import TtlockBleLock
+
+    coordinator = TtlockBleDataUpdateCoordinator(
+        hass,
+        timedelta(seconds=30),
+        {},
+    )
+    coordinator.data = {}
+    entity = TtlockBleLock(coordinator, sample_virtual_key, MagicMock())
+    assert entity.is_locked is None
+    entity._attr_is_locked = True
+    entity._sync_from_coordinator()
+    assert entity.is_locked is True

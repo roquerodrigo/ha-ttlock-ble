@@ -124,3 +124,26 @@ async def test_battery_sensor_is_diagnostic(
     entry = registry.async_get(state.entity_id)
     assert entry is not None
     assert entry.entity_category == er.EntityCategory.DIAGNOSTIC
+
+
+def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
+    hass,
+    sample_virtual_key,
+) -> None:
+    """An empty coordinator snapshot leaves `_attr_native_value` untouched."""
+    from datetime import timedelta
+
+    from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
+
+    coordinator = TtlockBleDataUpdateCoordinator(
+        hass,
+        timedelta(seconds=30),
+        {},
+    )
+    coordinator.data = {}
+    entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)
+    assert entity.native_value is None
+    entity._attr_native_value = 64
+    entity._sync_from_coordinator()
+    assert entity.native_value == 64

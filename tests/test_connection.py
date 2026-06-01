@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,7 +12,13 @@ from custom_components.ttlock_ble.connection import (
     TtlockBleConnection,
     connection_signal,
     event_signal,
+    log_signal,
 )
+
+
+def _log_entry(record_number: int) -> SimpleNamespace:
+    """Build a minimal LogEntry stand-in keyed by `record_number`."""
+    return SimpleNamespace(record_number=record_number)
 
 
 def test_event_signal_lowercases_mac() -> None:
@@ -390,3 +397,96 @@ async def test_connection_signal_not_emitted_when_connect_fails(
     await conn.async_query_state()
     await hass.async_block_till_done()
     assert received == []
+
+
+async def test_get_operation_log_returns_empty_when_device_missing(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """No reachable device means no client, so the log fetch yields nothing."""
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_operation_log() == []
+    mock_ttlock_client.get_operation_log.assert_not_called()
+
+
+async def test_get_operation_log_returns_empty_on_ttlock_error(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A TTLockError during the fetch is swallowed and returns an empty list."""
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        side_effect=TTLockError("read log fail"),
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_operation_log() == []
+
+
+async def test_get_operation_log_dispatches_only_new_records(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """Each record is dispatched once; subsequent fetches skip seen records."""
+    received: list[object] = []
+    async_dispatcher_connect(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    first = [_log_entry(1), _log_entry(2)]
+    mock_ttlock_client.get_operation_log = AsyncMock(return_value=first)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    new_entries = await conn.async_get_operation_log()
+    await hass.async_block_till_done()
+    assert [e.record_number for e in new_entries] == [1, 2]
+    assert [e.record_number for e in received] == [1, 2]
+
+    # A second fetch returning the same records plus a new one only emits the new.
+    second = [_log_entry(1), _log_entry(2), _log_entry(3)]
+    mock_ttlock_client.get_operation_log = AsyncMock(return_value=second)
+    new_entries = await conn.async_get_operation_log()
+    await hass.async_block_till_done()
+    assert [e.record_number for e in new_entries] == [3]
+    assert [e.record_number for e in received] == [1, 2, 3]
+
+
+async def test_get_operation_log_skips_dispatch_when_disabled(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """With `dispatch=False` new records are returned but never broadcast."""
+    received: list[object] = []
+    async_dispatcher_connect(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    mock_ttlock_client.get_operation_log = AsyncMock(return_value=[_log_entry(7)])
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    new_entries = await conn.async_get_operation_log(dispatch=False)
+    await hass.async_block_till_done()
+    assert [e.record_number for e in new_entries] == [7]
+    assert received == []
+
+
+async def test_run_command_wraps_timeout_error(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A bare `TimeoutError` from the SDK is converted to a `TTLockError`."""
+    mock_ttlock_client.lock = AsyncMock(side_effect=TimeoutError)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with pytest.raises(TTLockError, match="timed out responding to lock"):
+        await conn.async_lock()
+    mock_ttlock_client.disconnect.assert_awaited()
