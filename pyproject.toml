@@ -14,7 +14,7 @@ dev = [
     "bleak==3.0.2",
     "bluetooth-adapters==2.4.0",
     "colorlog==6.10.1",
-    "dbus-fast==5.0.17",
+    "dbus-fast==5.0.22",
     "homeassistant==2026.5.3",
     "pre-commit==4.6.0",
     "pytest==9.0.3",
@@ -25,7 +25,7 @@ dev = [
     "ttlock-ble==0.1.7",
 ]
 lint = [
-    "ruff==0.15.15",
+    "ruff==0.15.16",
     "mypy==2.1.0",
 ]
 
