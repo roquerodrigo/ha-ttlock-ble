@@ -28,13 +28,21 @@ Both gates mirror CI (`.github/workflows/ci.yml`). Skip this only when the chang
 
 ## Bumping the Home Assistant version
 
-The Home Assistant version is pinned in three places and **must be updated together**, otherwise CI, HACS and the test harness drift apart:
+The Home Assistant version is pinned in two places and **must be updated together**, otherwise CI, HACS and the test harness drift apart:
 
-1. `requirements.txt` — `homeassistant==<X.Y.Z>` (runtime/CI lint + mypy).
-2. `hacs.json` — `"homeassistant": "<X.Y.Z>"` (minimum HA core enforced by HACS).
-3. `requirements_test.txt` — `pytest-homeassistant-custom-component==<matching release>` (the test harness ships its own pinned `homeassistant`; the two pins must come from the same HA release, otherwise lint and tests resolve different cores).
+1. `pyproject.toml` — the `dependency-groups.dev` list pins both `homeassistant==<X.Y.Z>` (runtime/CI lint + mypy) and `pytest-homeassistant-custom-component==<matching release>` (the test harness ships its own pinned `homeassistant`; the two pins must come from the same HA release, otherwise lint and tests resolve different cores).
+2. `hacs.json` — `"homeassistant": "<X.Y.Z>"` (minimum HA core enforced by HACS; may lag behind the dev-group pin).
 
-Verify the pairing on PyPI before committing: the `requires_dist` of `pytest-homeassistant-custom-component` must list the same `homeassistant==<X.Y.Z>` you pinned in `requirements.txt`.
+Verify the pairing on PyPI before committing: the `requires_dist` of `pytest-homeassistant-custom-component` must list the same `homeassistant==<X.Y.Z>` you pinned in `pyproject.toml`. Run `uv sync` after bumping so `uv.lock` picks up the new pins.
+
+## The `ttlock-ble` SDK pin
+
+This integration wraps the sibling repo [`ttlock-ble`](https://github.com/roquerodrigo/ttlock-ble), which owns all BLE protocol/crypto logic and the cloud login client. The pin lives in **two places that can drift**:
+
+- `custom_components/ttlock_ble/manifest.json` → `requirements: ["ttlock-ble==<version>"]` — this is what HACS/HA actually installs for end users.
+- `pyproject.toml` → `dependency-groups.dev` → `"ttlock-ble==<version>"` — this is what lint/mypy/pytest run against locally and in CI.
+
+If these two pins diverge, CI is green against a different SDK version than what ships to users. A breaking change in the SDK's public API (`TTLockCloud`, `TTLockClient`, `VirtualKey`, `CloudError`, the `disconnected_callback` signature) requires bumping both pins together, then re-running lint + tests here — the SDK repo's own release does not by itself update anything on this side.
 
 ## Architecture
 
@@ -50,21 +58,24 @@ connection.py    → owns the long-lived BLE session, reconnect loop,
 coordinator.py   → polls every scan_interval seconds via each connection
 lock.py          → LockEntity backed by the BLE connection
 sensor.py        → BatterySensor backed by the same poll + push events
+binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
 event.py         → EventEntity that surfaces decoded LockEvent pushes
 ```
 
 ### Entry typing
 
-`data.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]` and the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 ### Config flow surface
 
-`config_flow.py` implements four user-facing steps; all share one `_validate` helper and one `_credentials_schema` builder:
+`config_flow.py` implements five user-facing steps, all sharing one module-level `_credentials_schema` builder:
 
-- `async_step_user` — initial setup; sets unique_id from username, aborts on duplicate.
-- `async_step_reauth` / `async_step_reauth_confirm` — fired when the coordinator raises `ConfigEntryAuthFailed`. `async_update_reload_and_abort` rotates credentials in place.
+- `async_step_user` — initial setup; sets unique_id from username, aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code.
+- `async_step_verify_code` — second step of the 2FA branch; submits the emailed code via `_async_validate_code_and_login` and finalizes entry creation on success.
+- `async_step_reauth` / `async_step_reauth_confirm` — HA's reauth entry points. Nothing in this integration currently raises `ConfigEntryAuthFailed` to trigger them automatically — the coordinator and `connection.py` only ever talk BLE after setup, never the cloud again — so today these steps are reachable only by manually starting a reauth flow for the entry. `async_update_reload_and_abort` rotates credentials in place on success.
 - `async_step_reconfigure` — lets the user edit credentials via the integration's three-dot menu, no delete-and-re-add cycle.
-- `async_get_options_flow` — returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
+
+`async_step_reauth_confirm` and `async_step_reconfigure` both funnel through the shared `_async_step_credentials_for_entry` body (login, then `async_update_reload_and_abort`); `async_get_options_flow` returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
 
 ### Options flow
 
@@ -93,4 +104,4 @@ event.py         → EventEntity that surfaces decoded LockEvent pushes
 
 ### Diagnostics
 
-`diagnostics.py` returns `TtlockBleDiagnosticsPayload`. `username`/`password`/`aesKeyStr`/`unlockKey`/`adminPs` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
+`diagnostics.py` returns `TtlockBleDiagnosticsPayload`. `username`/`password`/`aesKeyStr`/`unlockKey`/`adminPs`/`keys` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
