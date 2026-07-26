@@ -71,24 +71,24 @@ async def async_setup_entry(
         coordinator,
     )
 
+    # Trigger the first state refresh without awaiting it, so the config entry
+    # can finish loading while connections settle. The task is still tracked by
+    # Home Assistant and will be awaited by async_block_till_done in tests and
+    # by the startup wrap-up.
+    first_refresh = entry.async_create_task(
+        hass,
+        coordinator.async_refresh(),
+        name=f"{DOMAIN}.first_refresh",
+    )
+
     entry.runtime_data = TtlockBleData(
         keys=stored_keys,
         virtual_keys=virtual_keys,
         connections=connections,
         coordinator=coordinator,
         bluetooth_unsubs=bluetooth_unsubs,
+        first_refresh=first_refresh,
     )
-    # Do not block HA startup waiting for the first BLE poll; start it in the
-    # background so the config entry can finish loading while connections settle.
-    first_refresh = hass.async_create_background_task(
-        coordinator.async_refresh(),
-        name=f"{DOMAIN}.first_refresh",
-    )
-
-    def _cancel_first_refresh() -> None:
-        first_refresh.cancel()
-
-    entry.async_on_unload(_cancel_first_refresh)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -134,6 +134,8 @@ async def async_unload_entry(
     entry: TtlockBleConfigEntry,
 ) -> bool:
     """Tear down entities and stop the per-lock BLE connections."""
+    if entry.runtime_data.first_refresh is not None:
+        entry.runtime_data.first_refresh.cancel()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     for unsub in entry.runtime_data.bluetooth_unsubs:
         unsub()
