@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.2.2](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.1...v3.2.2) (2026-07-26)
+
+
+### Bug Fixes
+
+* **connection:** reduce reconnect cooldown to 5 minutes ([76967ba](https://github.com/roquerodrigo/ha-ttlock-ble/commit/76967baf75bb5bb3180cd79e68678c288b3ecb42))
+* **init:** schedule first refresh via tracked config entry task ([411753e](https://github.com/roquerodrigo/ha-ttlock-ble/commit/411753e4506502fb970eb909aaa5a993c2254c5b))
+* **manifest:** align ttlock-ble requirement with pyproject ([42fb0ee](https://github.com/roquerodrigo/ha-ttlock-ble/commit/42fb0eeac9b9dd3bc56a32786dcae6df1fd8653c))
+
+
+### Performance Improvements
+
+* reduce Home Assistant startup delay ([1926ebe](https://github.com/roquerodrigo/ha-ttlock-ble/commit/1926ebe6772ee91b6fed13b2dd1a2462046599b4))
+
+
+### Documentation
+
+* **CLAUDE:** update reconnect cooldown description to 5 minutes ([03c41d0](https://github.com/roquerodrigo/ha-ttlock-ble/commit/03c41d054ddf7f905499cb094612de87a8fbdf8e))
+* update CLAUDE.md ([ed9ca22](https://github.com/roquerodrigo/ha-ttlock-ble/commit/ed9ca22f00bbb561d802a4cb6bc976a4ad03240e))
+
 ## [3.2.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.0...v3.2.1) (2026-05-25)
 
 
