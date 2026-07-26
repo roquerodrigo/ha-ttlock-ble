@@ -9,6 +9,7 @@ connections itself.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -60,10 +61,23 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
 
     async def _async_update_data(self) -> TtlockBleCoordinatorData:
         """Poll every connection once and return the aggregated state map."""
-        state: TtlockBleCoordinatorData = {}
-        for mac, connection in self._connections.items():
-            state[mac] = await self._async_poll(connection)
+        poll_tasks = {
+            mac: self._async_poll(connection)
+            for mac, connection in self._connections.items()
+        }
+        results = await asyncio.gather(*poll_tasks.values(), return_exceptions=True)
         self._first_refresh_done = True
+        state: TtlockBleCoordinatorData = {}
+        for mac, result in zip(poll_tasks, results, strict=True):
+            if isinstance(result, BaseException):
+                LOGGER.warning("Failed to poll %s: %s", mac, result)
+                state[mac] = {
+                    "locked": None,
+                    "battery_level": None,
+                    "available": False,
+                }
+            else:
+                state[mac] = result
         return state
 
     async def _async_poll(

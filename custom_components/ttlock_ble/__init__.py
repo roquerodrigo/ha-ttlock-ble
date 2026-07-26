@@ -16,7 +16,7 @@ from homeassistant.core import callback
 from ttlock_ble import VirtualKey
 
 from .connection import TtlockBleConnection
-from .const import DEFAULT_SCAN_INTERVAL_SECONDS
+from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData
 
@@ -78,7 +78,18 @@ async def async_setup_entry(
         coordinator=coordinator,
         bluetooth_unsubs=bluetooth_unsubs,
     )
-    await coordinator.async_config_entry_first_refresh()
+    # Do not block HA startup waiting for the first BLE poll; start it in the
+    # background so the config entry can finish loading while connections settle.
+    first_refresh = hass.async_create_background_task(
+        coordinator.async_refresh(),
+        name=f"{DOMAIN}.first_refresh",
+    )
+
+    def _cancel_first_refresh() -> None:
+        first_refresh.cancel()
+
+    entry.async_on_unload(_cancel_first_refresh)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
