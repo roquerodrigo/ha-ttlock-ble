@@ -5,33 +5,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "0 0 * * 0"   # CodeQL weekly
 
 permissions:
   contents: read
 
 jobs:
   lint:
-    if: github.event_name != 'schedule'
     uses: roquerodrigo/.github/.github/workflows/ha-lint.yml@v2
 
   tests:
-    if: github.event_name != 'schedule'
     needs: lint
     uses: roquerodrigo/.github/.github/workflows/ha-tests.yml@v2
 
   validate:
-    if: github.event_name != 'schedule'
     needs: lint
     uses: roquerodrigo/.github/.github/workflows/ha-validate.yml@v2
-
-  codeql:
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v2
 
   update-pr-branch:
     if: github.event_name == 'pull_request'
@@ -40,12 +28,3 @@ jobs:
       contents: write
       pull-requests: write
     uses: roquerodrigo/.github/.github/workflows/ha-update-pr-branch.yml@v2
-
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, tests, validate]
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/ha-release.yml@v2
-    secrets: inherit
