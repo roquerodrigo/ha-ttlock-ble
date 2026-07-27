@@ -9,27 +9,13 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
 
-permissions:
-  issues: write
-  pull-requests: write
-
 concurrency:
   group: auto-assign
   cancel-in-progress: false
 
 jobs:
-  assign:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Assign unassigned open issues and pull requests to the repository owner
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ASSIGNEE: ${{ github.repository_owner }}
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" --paginate \
-            --jq '.[] | select(.assignees | length == 0) | .number' |
-            while read -r number; do
-              gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${number}/assignees" \
-                -f "assignees[]=${ASSIGNEE}" --silent
-              echo "Assigned #${number} to ${ASSIGNEE}"
-            done
+  auto-assign:
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: roquerodrigo/.github/.github/workflows/auto-assign.yml@main
