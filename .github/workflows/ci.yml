@@ -33,12 +33,6 @@ jobs:
       security-events: write
     uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v2
 
-  auto-assign:
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
-    permissions:
-      pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/ha-auto-assign.yml@v2
-    secrets: inherit
 
   update-pr-branch:
     if: github.event_name == 'pull_request'
