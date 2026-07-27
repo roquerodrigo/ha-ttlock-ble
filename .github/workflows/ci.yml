@@ -33,7 +33,6 @@ jobs:
       security-events: write
     uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v2
 
-
   update-pr-branch:
     if: github.event_name == 'pull_request'
     needs: [lint, tests, validate]
