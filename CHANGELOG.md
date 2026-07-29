@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.3](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.2...v3.2.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* track lock state from the lock's BLE advertisements ([40a908e](https://github.com/roquerodrigo/ha-ttlock-ble/commit/40a908e1a235a6224eb13d7499efb895504073a3)), closes [#42](https://github.com/roquerodrigo/ha-ttlock-ble/issues/42)
+
+
+### Dependencies
+
+* bump ttlock-ble to 0.1.8 ([6b41517](https://github.com/roquerodrigo/ha-ttlock-ble/commit/6b41517fd711e389ccf82e4fb9419edc14213339))
+
 ## [3.2.2](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.1...v3.2.2) (2026-07-26)
 
 
