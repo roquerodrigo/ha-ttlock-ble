@@ -1116,7 +1116,7 @@ wheels = [
 
 [[package]]
 name = "ha-ttlock-ble"
-version = "3.2.1"
+version = "3.2.2"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1158,7 +1158,7 @@ dev = [
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.332" },
     { name = "serialx", specifier = "==1.8.2" },
-    { name = "ttlock-ble", specifier = "==0.1.7" },
+    { name = "ttlock-ble", specifier = "==0.1.8" },
 ]
 lint = [
     { name = "mypy", specifier = "==2.3.0" },
@@ -2795,7 +2795,7 @@ wheels = [
 
 [[package]]
 name = "ttlock-ble"
-version = "0.1.7"
+version = "0.1.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -2805,9 +2805,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8f/b4/1e3e6d2a4ddf1aea653b09e65d7b6e54f49c24bc2df985e8cb9d489667b2/ttlock_ble-0.1.7.tar.gz", hash = "sha256:1550f3fba8b8f07e1e6aa25d1c4612d846252f444551632d7c6fa654b1a5a851", size = 113707, upload-time = "2026-05-25T22:55:40.21Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/38/79d0d62b1df9f554353fd7a418f7171b72a925cd6ad2c06cbaa3f54b95ec/ttlock_ble-0.1.8.tar.gz", hash = "sha256:a1d4b43812710a9627d3132c05cdf2dd2319b4a4d4bfb816b100ccf5d620724b", size = 128980, upload-time = "2026-07-29T18:04:11.336Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/d8/30aecc5d0b07845e26f8df7181c69c5b01700ad631f1dfb0898223812214/ttlock_ble-0.1.7-py3-none-any.whl", hash = "sha256:227950fc8060f85243d8849a9d00b86a970e4c433878649edc467b1b9056432a", size = 43486, upload-time = "2026-05-25T22:55:39.19Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/a8/88a6fb363979249e65744a0f123fc7ee0f5e340721f9775c0847b90968d8/ttlock_ble-0.1.8-py3-none-any.whl", hash = "sha256:9f6b8441583e9af70f78c75fd8acc80ed8bac27fa735696947ba8108a2a13c86", size = 45496, upload-time = "2026-07-29T18:04:10.244Z" },
 ]
 
 [[package]]
