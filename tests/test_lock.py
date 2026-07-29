@@ -134,7 +134,7 @@ async def test_async_unlock_sets_optimistic_state(
 
     initial = hass.states.async_all("lock")[0]
     assert initial.state == "locked"
-    # Simulate cooldown for the post-command refresh.
+    # The post-command refresh finds the lock out of range.
     mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
     await hass.services.async_call(
         LOCK_DOMAIN,
@@ -176,7 +176,7 @@ async def test_async_lock_sets_optimistic_state(
     await hass.async_block_till_done()
     state = hass.states.async_all("lock")[0]
     assert state.state == "unlocked"
-    # Simulate cooldown for the post-command refresh.
+    # The post-command refresh finds the lock out of range.
     mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
     await hass.services.async_call(
         LOCK_DOMAIN,
@@ -252,9 +252,7 @@ async def test_lock_event_triggers_state_refresh(
     )
     await hass.async_block_till_done()
     assert hass.states.get(state.entity_id).state == "unlocked"
-    mock_ttlock_connection.async_query_state.assert_awaited_with(
-        force_cooldown_bypass=True
-    )
+    mock_ttlock_connection.async_query_state.assert_awaited()
 
 
 async def test_lock_event_with_decoded_state_skips_query(
@@ -375,9 +373,7 @@ async def test_lock_event_forced_query_returns_none_keeps_state(
         LockEvent(cmd_echo=0x47, status=1, data=b""),
     )
     await hass.async_block_till_done()
-    mock_ttlock_connection.async_query_state.assert_awaited_with(
-        force_cooldown_bypass=True,
-    )
+    mock_ttlock_connection.async_query_state.assert_awaited()
     assert hass.states.get(state.entity_id).state == "locked"
 
 

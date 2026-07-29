@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import time
 from typing import TYPE_CHECKING
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
@@ -65,7 +64,6 @@ class TtlockBleConnection:
         self._task: asyncio.Task[None] | None = None
         self._closing = False
         self._disconnected = asyncio.Event()
-        self._cooldown_until: float = 0.0
         self._seen_records: set[int] = set()
 
     @property
@@ -100,26 +98,16 @@ class TtlockBleConnection:
         async with self._lock:
             await self._async_disconnect_locked()
 
-    async def async_query_state(
-        self,
-        *,
-        force_cooldown_bypass: bool = False,
-    ) -> tuple[LockState | None, int | None] | None:
+    async def async_query_state(self) -> tuple[LockState | None, int | None] | None:
         """
         Return `(lock_state, battery)` through the live connection.
 
-        Returns `None` immediately while a long-backoff cooldown is in
-        effect — letting periodic coordinator polls hammer the lock would
-        defeat the very cooldown the maintain loop entered. User-driven
-        callers (`async_lock`/`async_unlock`, or the lock entity's
-        post-command follow-up) opt out via `force_cooldown_bypass=True`.
+        Returns `None` when the lock is out of range or the query failed.
+        Every caller is already rate-limited — the coordinator by
+        `scan_interval`, the lock entity by the user pressing a button —
+        so the reconnect cooldown the maintain loop keeps is deliberately
+        not consulted here: it paces the background loop, not the reads.
         """
-        if not force_cooldown_bypass and time.monotonic() < self._cooldown_until:
-            LOGGER.debug(
-                "Skipping query for %s — connection cooldown active",
-                self._key.lockMac,
-            )
-            return None
         async with self._lock:
             client = await self._async_ensure_connected_locked()
             if client is None:
@@ -285,6 +273,9 @@ class TtlockBleConnection:
         that drains the lock's battery. Connect failures (device not yet
         advertising) use a separate exponential backoff so first-boot
         scans don't wait the full cooldown.
+
+        The cooldown paces this loop only. State stays fresh meanwhile
+        through the lock's advertisements, which cost no session at all.
         """
         backoff = RECONNECT_INITIAL_BACKOFF
         while not self._closing:
@@ -297,11 +288,7 @@ class TtlockBleConnection:
                     continue
                 backoff = RECONNECT_INITIAL_BACKOFF
                 await self._disconnected.wait()
-                self._cooldown_until = time.monotonic() + RECONNECT_COOLDOWN_SECONDS
-                try:
-                    await asyncio.sleep(RECONNECT_COOLDOWN_SECONDS)
-                finally:
-                    self._cooldown_until = 0.0
+                await asyncio.sleep(RECONNECT_COOLDOWN_SECONDS)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

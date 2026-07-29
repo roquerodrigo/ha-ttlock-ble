@@ -5,27 +5,18 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
-from homeassistant.components.bluetooth import (
-    BluetoothCallbackMatcher,
-    BluetoothScanningMode,
-    async_register_callback,
-)
 from homeassistant.const import CONF_SCAN_INTERVAL, Platform
-from homeassistant.core import callback
 
 from ttlock_ble import VirtualKey
 
+from .advertisement import TtlockBleAdvertisementTracker
 from .connection import TtlockBleConnection
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData
 
 if TYPE_CHECKING:
-    from homeassistant.components.bluetooth import (
-        BluetoothChange,
-        BluetoothServiceInfoBleak,
-    )
-    from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+    from homeassistant.core import HomeAssistant
 
     from .data import (
         TtlockBleConfigData,
@@ -65,10 +56,8 @@ async def async_setup_entry(
         connections=connections,
     )
 
-    bluetooth_unsubs = _async_register_bluetooth_callbacks(
-        hass,
+    bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
         virtual_keys,
-        coordinator,
     )
 
     # Trigger the first state refresh without awaiting it, so the config entry
@@ -93,40 +82,6 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
-
-
-@callback
-def _async_register_bluetooth_callbacks(
-    hass: HomeAssistant,
-    virtual_keys: list[VirtualKey],
-    coordinator: TtlockBleDataUpdateCoordinator,
-) -> list[CALLBACK_TYPE]:
-    """
-    Refresh the coordinator the moment HA's bluetooth manager sees a lock.
-
-    Without this the coordinator only re-polls every `scan_interval`, so the
-    entity can spend many minutes `unavailable` after HA boots — HA's bluetooth
-    discovery typically lags integration setup by 30-120 seconds. Subscribing
-    per-MAC lets the UI become available within seconds of the first
-    advertisement.
-    """
-
-    @callback
-    def _on_advertisement(
-        _service_info: BluetoothServiceInfoBleak,
-        _change: BluetoothChange,
-    ) -> None:
-        hass.async_create_task(coordinator.async_request_refresh())
-
-    return [
-        async_register_callback(
-            hass,
-            _on_advertisement,
-            BluetoothCallbackMatcher(address=key.lockMac, connectable=True),
-            BluetoothScanningMode.ACTIVE,
-        )
-        for key in virtual_keys
-    ]
 
 
 async def async_unload_entry(

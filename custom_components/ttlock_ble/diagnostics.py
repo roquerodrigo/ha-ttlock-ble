@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from homeassistant.components.bluetooth import async_last_service_info
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+
+from ttlock_ble import LockAdvertisement
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -14,6 +17,7 @@ if TYPE_CHECKING:
 
     from .data import (
         TtlockBleConfigEntry,
+        TtlockBleDiagnosticsAdvertisement,
         TtlockBleDiagnosticsEntry,
         TtlockBleDiagnosticsLockSummary,
         TtlockBleDiagnosticsPayload,
@@ -33,7 +37,7 @@ TO_REDACT: frozenset[str] = frozenset(
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     entry: TtlockBleConfigEntry,
 ) -> TtlockBleDiagnosticsPayload:
     """Return diagnostics for a config entry."""
@@ -60,6 +64,44 @@ async def async_get_config_entry_diagnostics(
         "entry": diag_entry,
         "locks": locks,
         "coordinator_state": dict(coordinator_state),
+        "advertisements": {
+            key["lockMac"]: _summarize_advertisement(hass, key["lockMac"])
+            for key in entry.runtime_data.keys
+        },
+    }
+
+
+def _summarize_advertisement(
+    hass: HomeAssistant,
+    mac: str,
+) -> TtlockBleDiagnosticsAdvertisement | None:
+    """Capture the last advertisement seen for `mac`, raw bytes included."""
+    service_info = async_last_service_info(hass, mac, connectable=False)
+    if service_info is None:
+        return None
+    decoded: dict[str, str | int | bool] | None = None
+    for company_id, payload in service_info.manufacturer_data.items():
+        advertisement = LockAdvertisement.from_manufacturer_data(company_id, payload)
+        if advertisement is not None:
+            decoded = {
+                "protocol_type": advertisement.protocol_type,
+                "protocol_version": advertisement.protocol_version,
+                "scene": advertisement.scene,
+                "lock_state": advertisement.lock_state.name,
+                "has_new_records": advertisement.has_new_records,
+                "is_setting_mode": advertisement.is_setting_mode,
+                "battery": advertisement.battery,
+                "lock_mac": advertisement.lock_mac,
+            }
+            break
+    return {
+        "source": service_info.source,
+        "rssi": service_info.rssi,
+        "manufacturer_data": {
+            str(company_id): payload.hex()
+            for company_id, payload in service_info.manufacturer_data.items()
+        },
+        "decoded": decoded,
     }
 
 

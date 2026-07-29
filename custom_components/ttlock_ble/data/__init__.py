@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from .config_data import TtlockBleConfigData
 from .credentials_input import TtlockBleCredentialsInput
+from .diagnostics_advertisement import TtlockBleDiagnosticsAdvertisement
 from .diagnostics_entry import TtlockBleDiagnosticsEntry
 from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
 from .diagnostics_payload import TtlockBleDiagnosticsPayload
@@ -36,6 +37,7 @@ __all__ = [
     "TtlockBleCoordinatorData",
     "TtlockBleCredentialsInput",
     "TtlockBleData",
+    "TtlockBleDiagnosticsAdvertisement",
     "TtlockBleDiagnosticsEntry",
     "TtlockBleDiagnosticsLockSummary",
     "TtlockBleDiagnosticsPayload",

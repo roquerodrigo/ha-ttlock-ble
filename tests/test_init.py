@@ -61,7 +61,7 @@ async def test_setup_registers_bluetooth_callback_per_lock(
     assert len(setup_integration.runtime_data.bluetooth_unsubs) == 1
 
 
-async def test_bluetooth_callback_triggers_coordinator_refresh(
+async def test_bluetooth_callback_polls_while_no_state_is_known(
     hass,
     sample_stored_key,
     enable_bluetooth,
@@ -69,12 +69,14 @@ async def test_bluetooth_callback_triggers_coordinator_refresh(
     mock_cloud,
     mock_ttlock_connection,
 ) -> None:
-    from unittest.mock import MagicMock, patch
+    """An advertisement we cannot decode still bootstraps the first reading."""
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     from custom_components.ttlock_ble.const import DOMAIN
 
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
     captured_callbacks: list = []
 
     def _capture(hass_arg, callback, matcher, mode):
@@ -82,7 +84,7 @@ async def test_bluetooth_callback_triggers_coordinator_refresh(
         return MagicMock()  # the unsub function
 
     with patch(
-        "custom_components.ttlock_ble.async_register_callback",
+        "custom_components.ttlock_ble.advertisement.async_register_callback",
         side_effect=_capture,
     ):
         entry = MockConfigEntry(
@@ -95,10 +97,12 @@ async def test_bluetooth_callback_triggers_coordinator_refresh(
         await hass.async_block_till_done()
 
     assert len(captured_callbacks) == 1
+    service_info = MagicMock()
+    service_info.manufacturer_data = {}
     with patch.object(
         entry.runtime_data.coordinator, "async_request_refresh"
     ) as mocked_refresh:
-        captured_callbacks[0](MagicMock(), MagicMock())
+        captured_callbacks[0](service_info, MagicMock())
         await hass.async_block_till_done()
         mocked_refresh.assert_called()
 
@@ -119,7 +123,7 @@ async def test_unload_invokes_bluetooth_unsubs(
 
     fake_unsub = MagicMock()
     with patch(
-        "custom_components.ttlock_ble.async_register_callback",
+        "custom_components.ttlock_ble.advertisement.async_register_callback",
         return_value=fake_unsub,
     ):
         entry = MockConfigEntry(

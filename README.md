@@ -15,7 +15,8 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Real-time push events** — keypad presses, fingerprint reads, IC-card swipes, mechanical key turns, and auto-lock fires arrive as Home Assistant events the moment the lock emits them.
 - **Battery sensor** — diagnostic entity refreshed by every poll *and* every push, no extra BLE traffic.
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
-- **Persistent BLE session with drop-storm cooldown** — keeps the link warm to receive push events, but backs off for 5 minutes after three short drops to protect the lock's battery.
+- **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
+- **Persistent BLE session with a post-drop cooldown** — keeps the link warm to receive push events, and waits before reconnecting so a lock in idle-sleep isn't thrashed.
 - **Reauth + reconfigure** — re-prompt for credentials in place when the cloud rejects the cached login, or edit them via the integration's three-dot menu.
 - **Diagnostics** — downloadable dump with credentials/keys redacted.
 - **Translations** — English and Brazilian Portuguese (parity enforced by tests).
@@ -45,7 +46,7 @@ The Bluetooth radio HA already manages (USB dongle, built-in adapter, or proxy) 
 
 Settings → Devices & Services → TTLock BLE → **Configure** lets you tune:
 
-- `scan_interval` (default 3600 s, minimum 60 s) — how often the coordinator polls the lock for state when no push events are arriving.
+- `scan_interval` (default 3600 s, minimum 60 s) — how often the coordinator opens a BLE session to read state. Every advertisement received postpones the next poll, so a lock in range is rarely polled at all; lowering this only adds connections (and battery drain) for a lock that has gone quiet.
 
 To edit credentials without removing and re-adding, use the integration's three-dot menu → **Reconfigure**.
 
@@ -53,8 +54,8 @@ To edit credentials without removing and re-adding, use the integration's three-
 
 The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silence and it drops). The integration:
 
-1. Keeps a persistent BLE session via `connection.py`, reconnecting on every drop signalled by bleak.
-2. Detects when the lock is in idle-sleep mode (≥ 3 sub-30 s sessions) and enters a 5-minute cooldown so we don't drain its battery thrashing.
+1. Reads the bolt position and battery level straight out of the lock's BLE advertisements. This costs no connection at all and is the only channel that reports an operation performed while Home Assistant is not connected — an auto-lock, the official app, a keypad code.
+2. Keeps a persistent BLE session via `connection.py`, reconnecting on every drop signalled by bleak, and waiting out a cooldown before doing so.
 3. After a user-initiated `lock`/`unlock`, the SDK keeps the link alive for 25 s so push events (the lock's reports of keypad operations, auto-locks, etc.) reach Home Assistant in real time.
 4. Each push event carries the decoded `lock_state` and `battery` when the firmware emits a heartbeat-style payload, letting the entities update without a follow-up query.
 
@@ -84,6 +85,7 @@ rm config/.storage/core.entity_registry config/.storage/core.device_registry
 ```
 custom_components/ttlock_ble/
 ├── __init__.py        # async_setup_entry / unload / reload + bluetooth callbacks
+├── advertisement.py   # TtlockBleAdvertisementTracker: state from advertisements
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
 ├── config_flow.py     # user / verify_code / reauth_confirm / reconfigure steps

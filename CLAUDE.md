@@ -55,7 +55,10 @@ __init__.py      → instantiates one TtlockBleConnection per lock and a
                     DataUpdateCoordinator, performs the first refresh
 connection.py    → owns the long-lived BLE session, reconnect loop,
                     cooldown, and push-event dispatch
-coordinator.py   → polls every scan_interval seconds via each connection
+advertisement.py → decodes lock state + battery from the advertisements
+                    HA's bluetooth manager already receives, no connection
+coordinator.py   → polls every scan_interval seconds via each connection,
+                    and publishes the advertised state as it arrives
 lock.py          → LockEntity backed by the BLE connection
 sensor.py        → BatterySensor backed by the same poll + push events
 binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
@@ -99,8 +102,23 @@ event.py         → EventEntity that surfaces decoded LockEvent pushes
 - A long-lived `TTLockClient` (the SDK).
 - An `asyncio.Lock` serializing query/lock/unlock commands.
 - A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
-- A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` (5 min) before reconnecting — no immediate retry. `async_query_state` honours `_cooldown_until`; user-driven `async_lock`/`async_unlock` bypass it.
+- A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` before reconnecting — no immediate retry. **The cooldown paces that loop only.** It used to also veto `async_query_state`, and since the lock drops every idle session within seconds the loop re-armed it constantly, so the configured `scan_interval` never actually ran a poll (issue #42). Reads are rate-limited by their own callers instead.
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe.
+
+### Passive advertisement tracking
+
+`advertisement.py` defines `TtlockBleAdvertisementTracker`, subscribed per MAC through HA's `async_register_callback`. The firmware folds the bolt position, a "new records pending" flag and the battery percentage into the manufacturer data of every advertisement, so `LockAdvertisement.from_manufacturer_data` (SDK) turns them into state for free.
+
+This is the **only** channel that reports an auto-lock: the firmware writes no operation-log record for it, and the lock drops the BLE session it pushes events on within seconds of going idle. The same applies to anything done from the official app or the keypad while we are not connected.
+
+Two details are load-bearing:
+
+- The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
+- An advertisement that decodes reaches the entities via `async_set_updated_data`, which also **reschedules** the next poll — a lock that keeps advertising is never connected to just to be read.
+
+An advertisement we cannot decode falls back to a coordinator refresh, but only while no state is known yet: that bootstrap is what makes the entity available seconds after HA boots instead of after a full `scan_interval`. Refreshing on *every* advertisement (the old behaviour) is what made the cooldown look necessary in the first place.
+
+The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
 
 ### Diagnostics
 

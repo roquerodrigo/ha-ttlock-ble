@@ -88,3 +88,58 @@ async def test_coordinator_polls_every_connection_once(
     assert set(data) == set(conns)
     for conn in conns.values():
         conn.async_query_state.assert_awaited_once()
+
+
+def _advertisement(*, unlocked: bool, battery: int = 66):
+    from ttlock_ble import LockAdvertisement, LockState
+
+    return LockAdvertisement(
+        protocol_type=5,
+        protocol_version=3,
+        scene=2,
+        lock_state=LockState.UNLOCKED if unlocked else LockState.LOCKED,
+        has_new_records=False,
+        is_setting_mode=False,
+        battery=battery,
+        lock_mac="AA:BB:CC:DD:EE:FF",
+    )
+
+
+async def test_apply_advertisement_publishes_state_without_polling(
+    hass,
+    sample_virtual_key,
+) -> None:
+    conn = _mock_connection()
+    coordinator = _coordinator(hass, {sample_virtual_key.lockMac: conn})
+    coordinator.async_apply_advertisement(
+        sample_virtual_key.lockMac,
+        _advertisement(unlocked=True, battery=66),
+    )
+    state = coordinator.data[sample_virtual_key.lockMac]
+    assert state["locked"] is False
+    assert state["battery_level"] == 66
+    assert state["available"] is True
+    conn.async_query_state.assert_not_awaited()
+
+
+async def test_apply_advertisement_keeps_the_other_locks(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    coordinator.async_set_updated_data({"OTHER": {"available": False}})
+    coordinator.async_apply_advertisement(
+        "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=False)
+    )
+    assert coordinator.data["OTHER"] == {"available": False}
+    assert coordinator.data["AA:BB:CC:DD:EE:FF"]["locked"] is True
+
+
+async def test_has_state_is_false_until_a_lock_state_is_known(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is False
+    coordinator.async_set_updated_data(
+        {"AA:BB:CC:DD:EE:FF": {"locked": None, "available": False}},
+    )
+    assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is False
+    coordinator.async_apply_advertisement(
+        "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=False)
+    )
+    assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is True

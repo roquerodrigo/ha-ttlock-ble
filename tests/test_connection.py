@@ -265,50 +265,35 @@ async def test_maintain_loop_logs_unexpected_error(
     assert mock_ble_resolver.call_count >= 1
 
 
-async def test_query_state_force_bypass_during_cooldown(
+async def test_query_state_reads_while_the_loop_is_cooling_down(
     hass,
     sample_virtual_key,
     mock_ble_resolver,
     mock_ttlock_client,
 ) -> None:
-    """`force_cooldown_bypass=True` connects even while a cooldown is active."""
-    import time
+    """A poll still reaches the lock while the maintain loop waits out a drop.
 
+    Regression: the post-drop cooldown used to short-circuit every
+    coordinator poll, and the loop re-armed it on each drop, so the
+    configured `scan_interval` was silently never honoured.
+    """
     mock_ttlock_client.query_state = AsyncMock(return_value=(0, 90))
     conn = TtlockBleConnection(hass, sample_virtual_key)
-    conn._cooldown_until = time.monotonic() + 60.0
-    assert await conn.async_query_state(force_cooldown_bypass=True) == (0, 90)
-
-
-async def test_query_state_short_circuits_during_cooldown(
-    hass,
-    sample_virtual_key,
-    mock_ble_resolver,
-    mock_ttlock_client,
-) -> None:
-    """While `_cooldown_until` is in the future, queries return None without BLE I/O."""
-    import time
-
-    conn = TtlockBleConnection(hass, sample_virtual_key)
-    conn._cooldown_until = time.monotonic() + 60.0
-    assert await conn.async_query_state() is None
-    mock_ble_resolver.assert_not_called()
-    mock_ttlock_client.connect.assert_not_awaited()
-
-
-async def test_lock_command_bypasses_cooldown(
-    hass,
-    sample_virtual_key,
-    mock_ble_resolver,
-    mock_ttlock_client,
-) -> None:
-    """User-initiated `async_lock` still tries to connect during cooldown."""
-    import time
-
-    conn = TtlockBleConnection(hass, sample_virtual_key)
-    conn._cooldown_until = time.monotonic() + 60.0
-    await conn.async_lock()
-    mock_ttlock_client.lock.assert_awaited_once()
+    with patch.multiple(
+        "custom_components.ttlock_ble.connection",
+        RECONNECT_INITIAL_BACKOFF=0.005,
+        RECONNECT_MAX_BACKOFF=0.01,
+        RECONNECT_COOLDOWN_SECONDS=30.0,
+    ):
+        await conn.async_start()
+        for _ in range(20):
+            await asyncio.sleep(0.005)
+            if mock_ttlock_client.connect.await_count >= 1:
+                break
+        conn._on_disconnected(mock_ttlock_client)
+        await asyncio.sleep(0.02)
+        assert await conn.async_query_state() == (0, 90)
+        await conn.async_stop()
 
 
 async def test_on_disconnected_wakes_maintain_loop(
@@ -325,21 +310,19 @@ async def test_on_disconnected_wakes_maintain_loop(
     assert conn._disconnected.is_set()
 
 
-async def test_maintain_loop_enters_cooldown_on_drop(
+async def test_maintain_loop_waits_before_reconnecting_after_a_drop(
     hass,
     sample_virtual_key,
     mock_ble_resolver,
     mock_ttlock_client,
 ) -> None:
-    """After any disconnect, the maintain loop sets `_cooldown_until` in the future."""
-    import time
-
+    """After a disconnect the loop sits out the cooldown instead of retrying."""
     conn = TtlockBleConnection(hass, sample_virtual_key)
     with patch.multiple(
         "custom_components.ttlock_ble.connection",
         RECONNECT_INITIAL_BACKOFF=0.005,
         RECONNECT_MAX_BACKOFF=0.01,
-        RECONNECT_COOLDOWN_SECONDS=5.0,
+        RECONNECT_COOLDOWN_SECONDS=30.0,
     ):
         await conn.async_start()
         # Let the loop connect and arm `_disconnected.wait()`.
@@ -347,13 +330,11 @@ async def test_maintain_loop_enters_cooldown_on_drop(
             await asyncio.sleep(0.005)
             if mock_ttlock_client.connect.await_count >= 1:
                 break
-        # Trigger a drop; the loop should enter cooldown next tick.
+        connects_before_drop = mock_ttlock_client.connect.await_count
+        mock_ttlock_client.is_connected = False
         conn._on_disconnected(mock_ttlock_client)
-        for _ in range(20):
-            await asyncio.sleep(0.005)
-            if conn._cooldown_until > 0:
-                break
-        assert conn._cooldown_until > time.monotonic()
+        await asyncio.sleep(0.05)
+        assert mock_ttlock_client.connect.await_count == connects_before_drop
         await conn.async_stop()
 
 

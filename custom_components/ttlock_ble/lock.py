@@ -50,7 +50,9 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
     Smart lock backed by a persistent `TtlockBleConnection`.
 
     State is reported via `_attr_is_locked`. It is updated:
-    - On every coordinator refresh that returned a known lock state.
+    - On every coordinator refresh that returned a known lock state —
+      which includes the state decoded from the lock's advertisements,
+      the only channel that reports an auto-lock.
     - Optimistically the moment `async_lock`/`async_unlock` succeed.
     - On every push event the SDK forwards (keypad, fingerprint,
       auto-lock): the SDK keeps the BLE link alive for a configurable
@@ -147,9 +149,9 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         """
         Copy `locked` from the coordinator snapshot into `_attr_is_locked`.
 
-        A `None` value (cooldown suppressed the poll, or the lock is
-        out of range) leaves the cached state untouched — the entity
-        keeps showing whatever was last known. The post-command settle
+        A `None` value (the lock is out of range, or the poll failed)
+        leaves the cached state untouched — the entity keeps showing
+        whatever was last known. The post-command settle
         window also suppresses conflicting coordinator data: the lock's
         BLE state can briefly disagree with the just-commanded state
         and we don't want the UI to bounce.
@@ -200,7 +202,7 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
 
     async def _async_query_and_apply(self) -> None:
         """Force-query state and apply it to `_attr_is_locked` if known."""
-        result = await self._connection.async_query_state(force_cooldown_bypass=True)
+        result = await self._connection.async_query_state()
         if result is None:
             LOGGER.debug(
                 "Forced query for %s returned no state",
