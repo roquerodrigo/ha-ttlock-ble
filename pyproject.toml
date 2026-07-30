@@ -25,7 +25,7 @@ dev = [
     "ttlock-ble==0.1.8",
 ]
 lint = [
-    "ruff==0.15.22",
+    "ruff==0.16.0",
     "mypy==2.3.0",
 ]
 
@@ -62,9 +62,12 @@ check_untyped_defs = false
 [tool.ruff]
 target-version = "py314"
 
+[tool.ruff.format]
+exclude = ["*.md"]  # ruff 0.16 formats Python blocks in Markdown; docs keep their own layout
+
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["ANN401", "D203", "D212", "COM812", "ISC001"]
+ignore = ["ANN401", "D203", "D212", "COM812", "ISC001", "CPY001"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
@@ -78,5 +81,5 @@ max-complexity = 25
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
     "S101", "S105", "S106", "D", "ANN", "ARG001", "ARG002",
-    "PLC0415", "SLF001", "PLR2004", "PLR0913",
+    "PLC0415", "SLF001", "PLR2004", "PLR0913", "PLR0917",
 ]
