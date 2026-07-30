@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.3...v3.3.0) (2026-07-30)
+
+
+### Features
+
+* **config-flow:** add a lock key by hand, without a cloud account ([80f5b14](https://github.com/roquerodrigo/ha-ttlock-ble/commit/80f5b14e8a8ebc683da51c42c3050e39d49806d4)), closes [#48](https://github.com/roquerodrigo/ha-ttlock-ble/issues/48)
+
 ## [3.2.3](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.2...v3.2.3) (2026-07-29)
 
 
