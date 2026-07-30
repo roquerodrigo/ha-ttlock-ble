@@ -8,7 +8,9 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers import selector
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import slugify
 
@@ -20,6 +22,7 @@ from .exceptions import (
     TtlockBleApiClientError,
     TtlockBleApiClientVerificationRequiredError,
 )
+from .manual_key import TtlockBleManualKey
 from .options_flow import TtlockBleOptionsFlow
 
 if TYPE_CHECKING:
@@ -29,12 +32,19 @@ if TYPE_CHECKING:
         TtlockBleConfigData,
         TtlockBleConfigEntry,
         TtlockBleCredentialsInput,
+        TtlockBleManualKeyInput,
         TtlockBleStoredKey,
         TtlockBleVerificationInput,
     )
 
 
 CONF_VERIFICATION_CODE = "verification_code"
+ABORT_ALREADY_CONFIGURED = "already_configured"
+DEFAULT_PROTOCOL_TYPE = 5
+DEFAULT_PROTOCOL_VERSION = 3
+DEFAULT_SCENE = 2
+DEFAULT_GROUP_ID = 1
+DEFAULT_ORG_ID = 1
 
 
 def _credentials_schema(default_username: str | None = None) -> vol.Schema:
@@ -53,6 +63,82 @@ def _credentials_schema(default_username: str | None = None) -> vol.Schema:
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
             ),
         },
+    )
+
+
+def _manual_key_schema(
+    defaults: TtlockBleManualKeyInput | None = None,
+) -> vol.Schema:
+    """Build the manual key schema, pre-filled when correcting a rejected form."""
+    previous = cast("Mapping[str, str | int]", defaults or {})
+
+    def _default(field: str, fallback: str | int) -> str | int:
+        return previous.get(field, fallback)
+
+    return vol.Schema(
+        {
+            vol.Required("lock_mac", default=_default("lock_mac", "")): (
+                selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                )
+            ),
+            vol.Required("aes_key", default=_default("aes_key", "")): (
+                selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD,
+                    ),
+                )
+            ),
+            vol.Required("unlock_key", default=_default("unlock_key", "")): (
+                selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD,
+                    ),
+                )
+            ),
+            vol.Optional("admin_passcode", default=_default("admin_passcode", "")): (
+                selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD,
+                    ),
+                )
+            ),
+            vol.Optional("lock_name", default=_default("lock_name", "")): (
+                selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                )
+            ),
+            vol.Required(
+                "protocol_type",
+                default=_default("protocol_type", DEFAULT_PROTOCOL_TYPE),
+            ): _positive_int_selector(),
+            vol.Required(
+                "protocol_version",
+                default=_default("protocol_version", DEFAULT_PROTOCOL_VERSION),
+            ): _positive_int_selector(),
+            vol.Required("scene", default=_default("scene", DEFAULT_SCENE)): (
+                _positive_int_selector()
+            ),
+            vol.Required(
+                "group_id",
+                default=_default("group_id", DEFAULT_GROUP_ID),
+            ): _positive_int_selector(),
+            vol.Required("org_id", default=_default("org_id", DEFAULT_ORG_ID)): (
+                _positive_int_selector()
+            ),
+        },
+    )
+
+
+def _positive_int_selector() -> selector.NumberSelector:
+    """Build the numeric selector used by every frame-header field."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0,
+            max=255,
+            step=1,
+            mode=selector.NumberSelectorMode.BOX,
+        ),
     )
 
 
@@ -88,6 +174,13 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     # strict LSP compliance for stronger typing of our own user_input schema.
     async def async_step_user(  # type: ignore[override]
         self,
+        user_input: TtlockBleCredentialsInput | None = None,  # noqa: ARG002
+    ) -> config_entries.ConfigFlowResult:
+        """Offer the two ways of obtaining a lock's keys."""
+        return self.async_show_menu(step_id="user", menu_options=["cloud", "manual"])
+
+    async def async_step_cloud(
+        self,
         user_input: TtlockBleCredentialsInput | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Collect credentials and either create the entry or branch to 2FA."""
@@ -103,10 +196,37 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             if errors.get("base") == "verification_required":
                 return await self.async_step_verify_code()
         return self.async_show_form(
-            step_id="user",
+            step_id="cloud",
             data_schema=_credentials_schema(
                 default_username=user_input["username"] if user_input else None,
             ),
+            errors=errors,
+        )
+
+    async def async_step_manual(
+        self,
+        user_input: TtlockBleManualKeyInput | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Take a key obtained outside the cloud and create the entry from it."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            manual_key = TtlockBleManualKey(self.hass)
+            errors = manual_key.async_validate(user_input)
+            if not errors:
+                key = manual_key.build(user_input)
+                await self.async_set_unique_id(format_mac(key.lockMac))
+                self._abort_if_unique_id_configured()
+                self._abort_if_lock_configured(key.lockMac)
+                data: TtlockBleConfigData = {
+                    "keys": [cast("TtlockBleStoredKey", key.to_dict())],
+                }
+                return self.async_create_entry(
+                    title=key.lockAlias,
+                    data=dict(data),
+                )
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=_manual_key_schema(user_input),
             errors=errors,
         )
 
@@ -151,13 +271,62 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         user_input: TtlockBleCredentialsInput | None = None,
     ) -> config_entries.ConfigFlowResult:
-        """Allow editing credentials of an existing entry."""
+        """Allow editing an existing entry, by whichever route created it."""
         entry = self._get_reconfigure_entry()
+        existing = cast("TtlockBleConfigData", cast("object", entry.data))
+        if "username" not in existing:
+            return await self.async_step_reconfigure_manual()
         return await self._async_step_credentials_for_entry(
             entry,
             step_id="reconfigure",
             user_input=user_input,
         )
+
+    async def async_step_reconfigure_manual(
+        self,
+        user_input: TtlockBleManualKeyInput | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Correct the key of an entry that was created from a manual one."""
+        entry = self._get_reconfigure_entry()
+        existing = cast("TtlockBleConfigData", cast("object", entry.data))
+        errors: dict[str, str] = {}
+        manual_key = TtlockBleManualKey(self.hass)
+        if user_input is not None:
+            errors = manual_key.async_validate(user_input)
+            if not errors:
+                key = manual_key.build(user_input)
+                data: TtlockBleConfigData = {
+                    "keys": [cast("TtlockBleStoredKey", key.to_dict())],
+                }
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates=dict(data),
+                    title=key.lockAlias,
+                )
+        return self.async_show_form(
+            step_id="reconfigure_manual",
+            data_schema=_manual_key_schema(
+                user_input or manual_key.defaults_from(existing["keys"][0]),
+            ),
+            errors=errors,
+        )
+
+    @callback
+    def _abort_if_lock_configured(self, lock_mac: str) -> None:
+        """
+        Abort when some existing entry already carries this lock.
+
+        The unique id alone does not catch it: an entry created from a
+        cloud account is keyed by the account, so the same lock arriving
+        by hand would otherwise be accepted and then collide on entity
+        unique ids, leaving the second entry silently without entities.
+        """
+        target = format_mac(lock_mac)
+        for entry in self._async_current_entries(include_ignore=False):
+            existing = cast("TtlockBleConfigData", cast("object", entry.data))
+            for key in existing.get("keys", []):
+                if format_mac(key["lockMac"]) == target:
+                    raise AbortFlow(ABORT_ALREADY_CONFIGURED)
 
     async def _async_step_credentials_for_entry(
         self,

@@ -17,6 +17,7 @@ from .diagnostics_entry import TtlockBleDiagnosticsEntry
 from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
 from .diagnostics_payload import TtlockBleDiagnosticsPayload
 from .lock_state import TtlockBleLockState
+from .manual_key_input import TtlockBleManualKeyInput
 from .options_data import TtlockBleOptionsData
 from .runtime import TtlockBleData
 from .stored_key import TtlockBleStoredKey
@@ -42,6 +43,7 @@ __all__ = [
     "TtlockBleDiagnosticsLockSummary",
     "TtlockBleDiagnosticsPayload",
     "TtlockBleLockState",
+    "TtlockBleManualKeyInput",
     "TtlockBleOptionsData",
     "TtlockBleStoredKey",
     "TtlockBleStoredLockVersion",

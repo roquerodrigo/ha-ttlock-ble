@@ -77,6 +77,6 @@ max-complexity = 25
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
-    "S101", "S105", "S106", "D", "ANN", "ARG001",
+    "S101", "S105", "S106", "D", "ANN", "ARG001", "ARG002",
     "PLC0415", "SLF001", "PLR2004", "PLR0913",
 ]

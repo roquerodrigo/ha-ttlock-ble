@@ -51,6 +51,8 @@ The integration follows the HA `DataUpdateCoordinator` pattern:
 ```
 config_flow.py   → cloud-bootstraps credentials, requests 2FA when needed,
                     pulls the per-lock VirtualKeys, creates the ConfigEntry
+manual_key.py    → builds a VirtualKey from a hand-entered key, for locks
+                    that were never in a TTLock account
 __init__.py      → instantiates one TtlockBleConnection per lock and a
                     DataUpdateCoordinator, performs the first refresh
 connection.py    → owns the long-lived BLE session, reconnect loop,
@@ -71,12 +73,27 @@ event.py         → EventEntity that surfaces decoded LockEvent pushes
 
 ### Config flow surface
 
-`config_flow.py` implements five user-facing steps, all sharing one module-level `_credentials_schema` builder:
+`config_flow.py` implements the user-facing steps, sharing one module-level `_credentials_schema` builder for the credential ones and one `_manual_key_schema` for the manual one:
 
-- `async_step_user` — initial setup; sets unique_id from username, aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code.
+- `async_step_user` — a menu, nothing else: the entry can come from a cloud account or from a key entered by hand.
+- `async_step_cloud` — the credential step (named `user` before the menu existed); sets unique_id from username, aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code.
 - `async_step_verify_code` — second step of the 2FA branch; submits the emailed code via `_async_validate_code_and_login` and finalizes entry creation on success.
 - `async_step_reauth` / `async_step_reauth_confirm` — HA's reauth entry points. Nothing in this integration currently raises `ConfigEntryAuthFailed` to trigger them automatically — the coordinator and `connection.py` only ever talk BLE after setup, never the cloud again — so today these steps are reachable only by manually starting a reauth flow for the entry. `async_update_reload_and_abort` rotates credentials in place on success.
-- `async_step_reconfigure` — lets the user edit credentials via the integration's three-dot menu, no delete-and-re-add cycle.
+- `async_step_manual` — takes a key obtained outside the cloud (see below); unique_id is the lock's MAC.
+- `async_step_reconfigure` — lets the user edit credentials via the integration's three-dot menu, no delete-and-re-add cycle. **Branches on how the entry was created**: an entry with no `username` has no account to re-prompt for, so it goes to `async_step_reconfigure_manual` and re-opens the key form pre-filled instead.
+
+### Manual key entry
+
+`manual_key.py` defines `TtlockBleManualKey`, for locks initialised by a local BLE bridge and never registered in a TTLock account. It asks only for what reaches the wire — MAC, AES key, unlock key, optional admin passcode, and the five frame-header integers — because the rest of what the cloud returns per key is never read: `payload_check_user_time()` is called with no arguments, so uid and lockFlagPos go out zeroed and the dates are the firmware's "permanent key" literals whatever the validity window said.
+
+Four things are load-bearing:
+
+- **The unlock key and admin passcode are stored verbatim.** The cloud path runs them through `decode_password()`; a locally obtained one is already plain, and decoding it again would corrupt it.
+- **The AES key is normalised to continuous hex on save.** The form accepts more separators than the library's `hex_key_to_bytes` parses (which takes comma, dot or continuous only), so a space-separated paste would be accepted and then fail at the first connection.
+- **The advertisement cross-checks the frame header.** Protocol type, version and scene are compared against what the lock broadcasts when it is in range, turning a typo into a form error instead of a lock that never answers. `group_id`/`org_id` are not in the advertisement and cannot be checked this way.
+- **A lock already held by another entry is rejected.** `_abort_if_lock_configured` scans the stored keys of every entry, because a cloud entry's unique id is the account, not the MAC — without it the same lock could be added twice and the second entry would silently collide on entity unique ids and get no entities.
+
+`username`/`password` are `NotRequired` on `TtlockBleConfigData` for exactly this reason; anything reading them must cope with their absence.
 
 `async_step_reauth_confirm` and `async_step_reconfigure` both funnel through the shared `_async_step_credentials_for_entry` body (login, then `async_update_reload_and_abort`); `async_get_options_flow` returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
 

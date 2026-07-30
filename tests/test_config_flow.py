@@ -49,9 +49,17 @@ def _patch_client(
         yield instance
 
 
-async def _start_user_flow(hass):
+async def _start_menu(hass):
     return await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+
+async def _start_user_flow(hass):
+    """Open the flow and pick the cloud branch, where most tests start."""
+    menu = await _start_menu(hass)
+    return await hass.config_entries.flow.async_configure(
+        menu["flow_id"], user_input={"next_step_id": "cloud"}
     )
 
 
@@ -68,10 +76,16 @@ def _existing_entry(hass, *, username: str = "user@example.com") -> MockConfigEn
 # --- User step -------------------------------------------------------------
 
 
-async def test_step_user_shows_form(hass, enable_custom_integrations) -> None:
+async def test_step_user_offers_both_routes(hass, enable_custom_integrations) -> None:
+    result = await _start_menu(hass)
+    assert result["type"] == FlowResultType.MENU
+    assert result["menu_options"] == ["cloud", "manual"]
+
+
+async def test_step_cloud_shows_form(hass, enable_custom_integrations) -> None:
     result = await _start_user_flow(hass)
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["step_id"] == "cloud"
 
 
 async def test_step_user_success_creates_entry(
@@ -196,7 +210,7 @@ async def test_step_user_verification_request_code_communication_error(
             flow["flow_id"], user_input=USER_INPUT
         )
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["step_id"] == "cloud"
     assert result["errors"] == {"base": "connection"}
 
 
@@ -213,7 +227,7 @@ async def test_step_user_verification_request_code_unknown_error(
             flow["flow_id"], user_input=USER_INPUT
         )
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["step_id"] == "cloud"
     assert result["errors"] == {"base": "unknown"}
 
 

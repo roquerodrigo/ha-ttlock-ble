@@ -1,93 +1,138 @@
 {
-    "config": {
-        "step": {
-            "user": {
-                "title": "Configurar TTLock BLE",
-                "description": "Informe suas credenciais do TTLock cloud. Elas são usadas uma única vez para baixar as chaves das fechaduras; depois disso, trancar/destrancar roda offline via Bluetooth.",
-                "data": {
-                    "username": "Email",
-                    "password": "Senha"
-                }
-            },
-            "verify_code": {
-                "title": "Verifique sua conta TTLock",
-                "description": "O TTLock enviou um código de uso único para o seu email. Informe-o abaixo para registrar este Home Assistant como um dispositivo confiável.",
-                "data": {
-                    "verification_code": "Código de verificação"
-                }
-            },
-            "reauth_confirm": {
-                "title": "Re-autenticar TTLock BLE",
-                "description": "Suas credenciais não são mais válidas. Informe as credenciais atualizadas.",
-                "data": {
-                    "username": "Email",
-                    "password": "Senha"
-                }
-            },
-            "reconfigure": {
-                "title": "Reconfigurar TTLock BLE",
-                "description": "Atualize as credenciais desta entrada. As chaves serão re-sincronizadas do cloud.",
-                "data": {
-                    "username": "Email",
-                    "password": "Senha"
-                }
-            }
-        },
-        "error": {
-            "auth": "Email ou senha incorretos.",
-            "connection": "Não foi possível conectar ao TTLock cloud.",
-            "invalid_code": "O código de verificação não foi aceito. Tente novamente.",
-            "verification_required": "O TTLock requer verificação deste dispositivo. Remova e adicione a integração novamente para completar o fluxo.",
-            "unknown": "Ocorreu um erro desconhecido."
-        },
-        "abort": {
-            "already_configured": "Esta conta já está configurada.",
-            "reauth_successful": "Re-autenticação concluída com sucesso.",
-            "reconfigure_successful": "Reconfiguração concluída com sucesso."
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar TTLock BLE",
+        "description": "Escolha como este Home Assistant obtém as chaves das suas fechaduras.",
+        "menu_options": {
+          "cloud": "Entrar com uma conta TTLock",
+          "manual": "Inserir uma chave manualmente"
         }
+      },
+      "cloud": {
+        "title": "Configurar TTLock BLE",
+        "description": "Informe suas credenciais do TTLock cloud. Elas são usadas uma única vez para baixar as chaves das fechaduras; depois disso, trancar/destrancar roda offline via Bluetooth.",
+        "data": {
+          "username": "Email",
+          "password": "Senha"
+        }
+      },
+      "manual": {
+        "title": "Inserir uma chave manualmente",
+        "description": "Para uma fechadura inicializada fora da nuvem TTLock. Informe os valores que a sua configuração local gerou; eles ficam guardados nesta entrada e são usados direto por Bluetooth, sem nenhuma conta envolvida. A chave AES aceita hex contínuo ou bytes separados. Os cinco números de protocolo formam o cabeçalho de quadro que a fechadura espera — os padrões servem para a maioria das fechaduras V3 e, se ela estiver ao alcance, os três primeiros são conferidos contra o que ela anuncia.",
+        "data": {
+          "lock_mac": "Endereço MAC da fechadura",
+          "aes_key": "Chave AES",
+          "unlock_key": "Chave de destravamento",
+          "admin_passcode": "Senha de administrador (opcional)",
+          "lock_name": "Nome (opcional)",
+          "protocol_type": "Tipo de protocolo",
+          "protocol_version": "Versão do protocolo",
+          "scene": "Cena",
+          "group_id": "ID do grupo",
+          "org_id": "ID da organização"
+        }
+      },
+      "verify_code": {
+        "title": "Verifique sua conta TTLock",
+        "description": "O TTLock enviou um código de uso único para o seu email. Informe-o abaixo para registrar este Home Assistant como um dispositivo confiável.",
+        "data": {
+          "verification_code": "Código de verificação"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-autenticar TTLock BLE",
+        "description": "Suas credenciais não são mais válidas. Informe as credenciais atualizadas.",
+        "data": {
+          "username": "Email",
+          "password": "Senha"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurar TTLock BLE",
+        "description": "Atualize as credenciais desta entrada. As chaves serão re-sincronizadas do cloud.",
+        "data": {
+          "username": "Email",
+          "password": "Senha"
+        }
+      },
+      "reconfigure_manual": {
+        "title": "Atualizar a chave da fechadura",
+        "description": "Corrija os valores guardados para esta fechadura. Nenhuma conta na nuvem está envolvida.",
+        "data": {
+          "lock_mac": "Endereço MAC da fechadura",
+          "aes_key": "Chave AES",
+          "unlock_key": "Chave de destravamento",
+          "admin_passcode": "Senha de administrador (opcional)",
+          "lock_name": "Nome (opcional)",
+          "protocol_type": "Tipo de protocolo",
+          "protocol_version": "Versão do protocolo",
+          "scene": "Cena",
+          "group_id": "ID do grupo",
+          "org_id": "ID da organização"
+        }
+      }
     },
-    "options": {
-        "step": {
-            "init": {
-                "title": "Opções do TTLock BLE",
-                "description": "Ajuste polling e outros comportamentos desta entrada.",
-                "data": {
-                    "scan_interval": "Intervalo de polling (segundos)"
-                }
-            }
-        }
+    "error": {
+      "auth": "Email ou senha incorretos.",
+      "connection": "Não foi possível conectar ao TTLock cloud.",
+      "invalid_code": "O código de verificação não foi aceito. Tente novamente.",
+      "verification_required": "O TTLock requer verificação deste dispositivo. Remova e adicione a integração novamente para completar o fluxo.",
+      "unknown": "Ocorreu um erro desconhecido.",
+      "invalid_mac": "Informe um endereço MAC no formato AA:BB:CC:DD:EE:FF.",
+      "invalid_aes_key": "A chave AES precisa ter 16 bytes em hexadecimal.",
+      "invalid_unlock_key": "A chave de destravamento aceita apenas dígitos.",
+      "invalid_admin_passcode": "A senha de administrador aceita apenas dígitos.",
+      "protocol_mismatch": "A fechadura está anunciando um tipo de protocolo, versão ou cena diferente do que foi informado. Confira os valores nos dados da sua fechadura."
     },
-    "entity": {
-        "binary_sensor": {
-            "presence": {
-                "name": "Disponível"
-            }
-        },
-        "event": {
-            "log": {
-                "name": "Registro",
-                "state_attributes": {
-                    "event_type": {
-                        "state": {
-                            "unlock": "Desbloqueio",
-                            "lock": "Bloqueio",
-                            "unlock_failed": "Falha ao desbloquear",
-                            "password_change": "Alteração de senha",
-                            "other": "Outro"
-                        }
-                    }
-                }
-            }
-        },
-        "lock": {
-            "lock": {
-                "name": "Fechadura"
-            }
-        },
-        "sensor": {
-            "battery": {
-                "name": "Bateria"
-            }
-        }
+    "abort": {
+      "already_configured": "Esta fechadura ou conta já está configurada.",
+      "reauth_successful": "Re-autenticação concluída com sucesso.",
+      "reconfigure_successful": "Reconfiguração concluída com sucesso."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opções do TTLock BLE",
+        "description": "Ajuste polling e outros comportamentos desta entrada.",
+        "data": {
+          "scan_interval": "Intervalo de polling (segundos)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "presence": {
+        "name": "Disponível"
+      }
+    },
+    "event": {
+      "log": {
+        "name": "Registro",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unlock": "Desbloqueio",
+              "lock": "Bloqueio",
+              "unlock_failed": "Falha ao desbloquear",
+              "password_change": "Alteração de senha",
+              "other": "Outro"
+            }
+          }
+        }
+      }
+    },
+    "lock": {
+      "lock": {
+        "name": "Fechadura"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Bateria"
+      }
+    }
+  }
 }

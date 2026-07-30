@@ -1,93 +1,138 @@
 {
-    "config": {
-        "step": {
-            "user": {
-                "title": "Set up TTLock BLE",
-                "description": "Enter your TTLock cloud credentials. They are used once to download the per-lock keys; after that, lock/unlock runs offline over Bluetooth.",
-                "data": {
-                    "username": "Email",
-                    "password": "Password"
-                }
-            },
-            "verify_code": {
-                "title": "Verify your TTLock account",
-                "description": "TTLock sent a one-time code to your email. Enter it below to register this Home Assistant install as a trusted device.",
-                "data": {
-                    "verification_code": "Verification code"
-                }
-            },
-            "reauth_confirm": {
-                "title": "Re-authenticate TTLock BLE",
-                "description": "Your credentials are no longer valid. Enter the updated credentials.",
-                "data": {
-                    "username": "Email",
-                    "password": "Password"
-                }
-            },
-            "reconfigure": {
-                "title": "Reconfigure TTLock BLE",
-                "description": "Update the credentials for this entry. Keys will be re-synced from the cloud.",
-                "data": {
-                    "username": "Email",
-                    "password": "Password"
-                }
-            }
-        },
-        "error": {
-            "auth": "Email or password is incorrect.",
-            "connection": "Unable to reach the TTLock cloud.",
-            "invalid_code": "The verification code was not accepted. Please try again.",
-            "verification_required": "TTLock requires verifying this device. Re-add the integration to complete the flow.",
-            "unknown": "Unknown error occurred."
-        },
-        "abort": {
-            "already_configured": "This account is already configured.",
-            "reauth_successful": "Re-authentication was successful.",
-            "reconfigure_successful": "Reconfiguration was successful."
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up TTLock BLE",
+        "description": "Choose how this Home Assistant gets the keys for your locks.",
+        "menu_options": {
+          "cloud": "Sign in to a TTLock account",
+          "manual": "Enter a lock key manually"
         }
+      },
+      "cloud": {
+        "title": "Set up TTLock BLE",
+        "description": "Enter your TTLock cloud credentials. They are used once to download the per-lock keys; after that, lock/unlock runs offline over Bluetooth.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "manual": {
+        "title": "Enter a lock key manually",
+        "description": "For a lock initialised outside the TTLock cloud. Enter the values your local setup produced; they are stored on this entry and used directly over Bluetooth, with no account involved. The AES key accepts either continuous hex or separated bytes. The five protocol numbers form the frame header the lock expects — the defaults suit most V3 locks, and if the lock is in range the first three are checked against what it broadcasts.",
+        "data": {
+          "lock_mac": "Lock MAC address",
+          "aes_key": "AES key",
+          "unlock_key": "Unlock key",
+          "admin_passcode": "Admin passcode (optional)",
+          "lock_name": "Name (optional)",
+          "protocol_type": "Protocol type",
+          "protocol_version": "Protocol version",
+          "scene": "Scene",
+          "group_id": "Group ID",
+          "org_id": "Organisation ID"
+        }
+      },
+      "verify_code": {
+        "title": "Verify your TTLock account",
+        "description": "TTLock sent a one-time code to your email. Enter it below to register this Home Assistant install as a trusted device.",
+        "data": {
+          "verification_code": "Verification code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate TTLock BLE",
+        "description": "Your credentials are no longer valid. Enter the updated credentials.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure TTLock BLE",
+        "description": "Update the credentials for this entry. Keys will be re-synced from the cloud.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "reconfigure_manual": {
+        "title": "Update the lock key",
+        "description": "Correct the values stored for this lock. No cloud account is involved.",
+        "data": {
+          "lock_mac": "Lock MAC address",
+          "aes_key": "AES key",
+          "unlock_key": "Unlock key",
+          "admin_passcode": "Admin passcode (optional)",
+          "lock_name": "Name (optional)",
+          "protocol_type": "Protocol type",
+          "protocol_version": "Protocol version",
+          "scene": "Scene",
+          "group_id": "Group ID",
+          "org_id": "Organisation ID"
+        }
+      }
     },
-    "options": {
-        "step": {
-            "init": {
-                "title": "TTLock BLE options",
-                "description": "Tune polling and other behaviour for this entry.",
-                "data": {
-                    "scan_interval": "Polling interval (seconds)"
-                }
-            }
-        }
+    "error": {
+      "auth": "Email or password is incorrect.",
+      "connection": "Unable to reach the TTLock cloud.",
+      "invalid_code": "The verification code was not accepted. Please try again.",
+      "verification_required": "TTLock requires verifying this device. Re-add the integration to complete the flow.",
+      "unknown": "Unknown error occurred.",
+      "invalid_mac": "Enter a MAC address in the form AA:BB:CC:DD:EE:FF.",
+      "invalid_aes_key": "The AES key must be 16 bytes of hex.",
+      "invalid_unlock_key": "The unlock key must be digits only.",
+      "invalid_admin_passcode": "The admin passcode must be digits only.",
+      "protocol_mismatch": "The lock is broadcasting a different protocol type, version or scene than the one entered. Check the values against your lock data."
     },
-    "entity": {
-        "binary_sensor": {
-            "presence": {
-                "name": "Available"
-            }
-        },
-        "event": {
-            "log": {
-                "name": "Log",
-                "state_attributes": {
-                    "event_type": {
-                        "state": {
-                            "unlock": "Unlock",
-                            "lock": "Lock",
-                            "unlock_failed": "Unlock failed",
-                            "password_change": "Password change",
-                            "other": "Other"
-                        }
-                    }
-                }
-            }
-        },
-        "lock": {
-            "lock": {
-                "name": "Lock"
-            }
-        },
-        "sensor": {
-            "battery": {
-                "name": "Battery"
-            }
-        }
+    "abort": {
+      "already_configured": "This lock or account is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "TTLock BLE options",
+        "description": "Tune polling and other behaviour for this entry.",
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "presence": {
+        "name": "Available"
+      }
+    },
+    "event": {
+      "log": {
+        "name": "Log",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unlock": "Unlock",
+              "lock": "Lock",
+              "unlock_failed": "Unlock failed",
+              "password_change": "Password change",
+              "other": "Other"
+            }
+          }
+        }
+      }
+    },
+    "lock": {
+      "lock": {
+        "name": "Lock"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      }
+    }
+  }
 }
