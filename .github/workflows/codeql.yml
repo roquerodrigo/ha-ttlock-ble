@@ -17,4 +17,4 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v2
+    uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v3

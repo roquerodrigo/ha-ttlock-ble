@@ -15,5 +15,5 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/ha-release.yml@v2
+    uses: roquerodrigo/.github/.github/workflows/ha-release.yml@v3
     secrets: inherit
