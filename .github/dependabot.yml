@@ -9,6 +9,9 @@ updates:
       time: "09:00"
       timezone: "America/Sao_Paulo"
 
+    commit-message:
+      prefix: "deps"
+      include: "scope"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -21,6 +24,9 @@ updates:
         patterns:
           - "*"
 
+    commit-message:
+      prefix: "deps"
+      include: "scope"
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -37,3 +43,7 @@ updates:
     ignore:
       # Dependabot should not update Home Assistant as that should match the homeassistant key in hacs.json
       - dependency-name: "homeassistant"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
