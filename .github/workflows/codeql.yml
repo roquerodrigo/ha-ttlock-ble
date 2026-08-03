@@ -8,8 +8,7 @@ on:
   schedule:
     - cron: "0 0 * * 0"
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   codeql:
@@ -17,4 +16,4 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: roquerodrigo/.github/.github/workflows/ha-codeql.yml@v2
+    uses: roquerodrigo/workflows/.github/workflows/codeql.yml@main

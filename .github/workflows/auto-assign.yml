@@ -13,9 +13,11 @@ concurrency:
   group: auto-assign
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
   auto-assign:
     permissions:
       issues: write
       pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/auto-assign.yml@main
+    uses: roquerodrigo/workflows/.github/workflows/auto-assign.yml@main

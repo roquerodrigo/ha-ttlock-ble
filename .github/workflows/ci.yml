@@ -6,20 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
   lint:
-    uses: roquerodrigo/.github/.github/workflows/ha-lint.yml@v2
+    uses: roquerodrigo/workflows/.github/workflows/python-lint.yml@main
 
   tests:
     needs: lint
-    uses: roquerodrigo/.github/.github/workflows/ha-tests.yml@v2
+    uses: roquerodrigo/workflows/.github/workflows/python-test.yml@main
 
   validate:
     needs: lint
-    uses: roquerodrigo/.github/.github/workflows/ha-validate.yml@v2
+    uses: roquerodrigo/workflows/.github/workflows/home-assistant-validate.yml@main
 
   update-pr-branch:
     if: github.event_name == 'pull_request'
@@ -27,4 +31,4 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/ha-update-pr-branch.yml@v2
+    uses: roquerodrigo/workflows/.github/workflows/update-pr-branch.yml@main

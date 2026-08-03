@@ -1,19 +1,25 @@
 name: Release
 
+# Gated on a successful CI run rather than on the push itself. The
+# `workflow_run.event == 'push'` half of the condition is what stops a pull
+# request with green CI from cutting a release.
+
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   release:
-    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: write
       pull-requests: write
-    uses: roquerodrigo/.github/.github/workflows/ha-release.yml@v2
-    secrets: inherit
+    uses: roquerodrigo/workflows/.github/workflows/release-please.yml@main
+    secrets:
+      release-token: ${{ secrets.RELEASE_PLEASE_PAT }}
