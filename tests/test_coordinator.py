@@ -140,3 +140,20 @@ async def test_has_state_is_false_until_a_lock_state_is_known(hass) -> None:
         "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=False)
     )
     assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is True
+
+
+async def test_poll_that_raises_blanks_only_that_lock(hass, sample_virtual_key) -> None:
+    """One lock throwing must not take the others' readings down with it."""
+    other = "11:BB:CC:DD:EE:FF"
+    failing = _mock_connection()
+    failing.async_query_state = AsyncMock(side_effect=RuntimeError("adapter gone"))
+    coordinator = _coordinator(
+        hass,
+        {
+            sample_virtual_key.lockMac: failing,
+            other: _mock_connection(query_return=(1, 50)),
+        },
+    )
+    data = await coordinator._async_update_data()
+    assert data[sample_virtual_key.lockMac] == {"locked": None, "battery_level": None}
+    assert data[other]["locked"] is False

@@ -275,7 +275,7 @@ async def test_lock_event_with_decoded_state_skips_query(
     async_dispatcher_send(
         hass,
         event_signal(sample_virtual_key.lockMac),
-        LockEvent(cmd_echo=0x14, status=1, data=b"\x2c\x01\x02", lock_state=1),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x01, 0x02])),
     )
     await hass.async_block_till_done()
     assert hass.states.get(state.entity_id).state == "unlocked"
@@ -313,7 +313,7 @@ async def test_lock_event_with_decoded_state_respects_settle_window(
         async_dispatcher_send(
             hass,
             event_signal(sample_virtual_key.lockMac),
-            LockEvent(cmd_echo=0x14, status=1, data=b"\x2c\x00\x02", lock_state=0),
+            LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x00, 0x02])),
         )
         await hass.async_block_till_done()
     assert hass.states.get(state.entity_id).state == "unlocked"

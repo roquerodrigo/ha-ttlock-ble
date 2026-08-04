@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -607,3 +608,53 @@ async def test_reconfigure_unknown_error(hass, enable_custom_integrations) -> No
             result["flow_id"], user_input=NEW_INPUT
         )
     assert result["errors"] == {"base": "unknown"}
+
+
+@pytest.mark.parametrize(
+    ("side_effect", "expected"),
+    [
+        (TtlockBleApiClientAuthenticationError("nope"), "auth"),
+        (TtlockBleApiClientError("something else"), "unknown"),
+    ],
+)
+async def test_key_sync_failures_map_to_their_error_keys(
+    hass,
+    enable_custom_integrations,
+    side_effect,
+    expected,
+) -> None:
+    """Each cloud failure during the key sync gets its own form error."""
+    with patch("custom_components.ttlock_ble.config_flow.TtlockBleApiClient") as cls:
+        instance = MagicMock()
+        instance.async_login = AsyncMock(return_value=None)
+        instance.async_list_keys = AsyncMock(side_effect=side_effect)
+        cls.return_value = instance
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=USER_INPUT
+        )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": expected}
+
+
+async def test_reauth_key_sync_failure_reshows_the_form(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """The reauth leg re-shows its form too, instead of aborting the flow."""
+    entry = _existing_entry(hass)
+    with patch("custom_components.ttlock_ble.config_flow.TtlockBleApiClient") as cls:
+        instance = MagicMock()
+        instance.async_login = AsyncMock(return_value=None)
+        instance.async_list_keys = AsyncMock(
+            side_effect=TtlockBleApiClientCommunicationError("down"),
+        )
+        cls.return_value = instance
+        flow = await entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=NEW_INPUT
+        )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": "connection"}
+    assert entry.data["password"] == "pass"

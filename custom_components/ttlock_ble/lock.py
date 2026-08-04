@@ -147,7 +147,9 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
 
     def _apply_lock_state(self, raw_state: LockState) -> None:
         """Write `raw_state` onto `_attr_is_locked` respecting the settle window."""
-        new_locked = raw_state is LockState.LOCKED
+        # `==`, not `is`: callers may hand us the plain int the wire carried
+        # rather than the enum member, and identity would silently say False.
+        new_locked = raw_state == LockState.LOCKED
         if time.monotonic() < self._settle_until and new_locked != self._attr_is_locked:
             LOGGER.debug(
                 "Suppressing %s flip for %s during command settle window",
