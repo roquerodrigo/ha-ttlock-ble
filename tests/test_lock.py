@@ -420,6 +420,48 @@ async def test_failed_command_clears_transitional_state(
     assert hass.states.get(state.entity_id).state == "locked"
 
 
+async def test_successful_command_reads_the_operation_log(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """The record the lock writes for our own command has to be picked up."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    # The coordinator's own poll reads the log too, so silence that leg —
+    # otherwise this passes even with the post-command fetch deleted.
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    mock_ttlock_connection.async_get_operation_log.reset_mock()
+    state = hass.states.async_all("lock")[0]
+    await hass.services.async_call(
+        LOCK_DOMAIN, SERVICE_UNLOCK, {"entity_id": state.entity_id}, blocking=True
+    )
+    await hass.async_block_till_done()
+    mock_ttlock_connection.async_get_operation_log.assert_awaited()
+
+
+async def test_failed_command_does_not_read_the_operation_log(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """Nothing was executed, so there is no new record to go looking for."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=TTLockError("offline"))
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    mock_ttlock_connection.async_get_operation_log.reset_mock()
+    state = hass.states.async_all("lock")[0]
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            LOCK_DOMAIN, SERVICE_UNLOCK, {"entity_id": state.entity_id}, blocking=True
+        )
+    await hass.async_block_till_done()
+    mock_ttlock_connection.async_get_operation_log.assert_not_awaited()
+
+
 async def test_concurrent_commands_do_not_erase_each_others_state(
     hass,
     setup_integration,

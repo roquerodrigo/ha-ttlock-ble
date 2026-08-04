@@ -38,17 +38,18 @@ def expected_lingering_timers() -> bool:
 
 
 @pytest.fixture(autouse=True)
-def _fast_command_settle() -> Generator[None]:
-    """Make the lock entity's post-command settle window finish instantly.
+def _fast_command_timings() -> Generator[None]:
+    """Collapse the lock entity's post-command waits to nothing.
 
-    The production default (4s) would tack 4 real seconds onto every
-    test that fires a lock/unlock service call and then asserts on the
-    resulting UI state. Individual tests can re-patch this constant
-    with their own value inside a tighter context.
+    The production values would tack 4 real seconds (the settle window)
+    plus 5 more (the delay before the log read) onto every test that
+    fires a lock/unlock service call and then asserts on the resulting
+    UI state. Individual tests can re-patch either constant with their
+    own value inside a tighter context.
     """
-    with patch(
-        "custom_components.ttlock_ble.lock.COMMAND_SETTLE_SECONDS",
-        0.001,
+    with (
+        patch("custom_components.ttlock_ble.lock.COMMAND_SETTLE_SECONDS", 0.001),
+        patch("custom_components.ttlock_ble.lock.LOG_FETCH_DELAY_SECONDS", 0.001),
     ):
         yield
 

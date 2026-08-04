@@ -33,6 +33,11 @@ if TYPE_CHECKING:
 
 COMMAND_SETTLE_SECONDS = 4.0
 
+# How long to wait after a command before reading the operation log. The
+# lock writes the record for the command it just executed a moment after
+# answering, so an immediate read would miss it.
+LOG_FETCH_DELAY_SECONDS = 5.0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
@@ -273,7 +278,7 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
 
     async def _async_fetch_log_after_command(self) -> None:
         """Fetch operation log shortly after a command to capture the new record."""
-        await asyncio.sleep(5)
+        await asyncio.sleep(LOG_FETCH_DELAY_SECONDS)
         await self._connection.async_get_operation_log()
 
     async def _async_query_and_apply(self) -> None:
