@@ -138,6 +138,51 @@ async def test_step_user_duplicate_aborts(
     assert result["reason"] == "already_configured"
 
 
+async def test_step_cloud_aborts_when_a_lock_is_already_configured(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+    sample_stored_key,
+) -> None:
+    """A lock added by hand blocks the cloud account that also holds it."""
+    manual = MockConfigEntry(
+        domain=DOMAIN,
+        data={"keys": [sample_stored_key]},
+        unique_id="e9:ef:a0:bd:22:1d",
+    )
+    manual.add_to_hass(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=USER_INPUT
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_reconfigure_ignores_the_entry_being_reconfigured(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+    sample_stored_key,
+) -> None:
+    """The collision check must not trip over the entry's own locks."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "user@example.com", "password": "pass", "keys": []},
+        unique_id="user_example_com",
+    )
+    entry.add_to_hass(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        flow = await entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=NEW_INPUT
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["keys"][0]["lockMac"] == sample_virtual_key.lockMac
+
+
 async def test_step_user_auth_error_shows_auth(
     hass, enable_custom_integrations
 ) -> None:

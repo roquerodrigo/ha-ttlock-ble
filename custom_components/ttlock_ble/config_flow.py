@@ -312,7 +312,12 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     @callback
-    def _abort_if_lock_configured(self, lock_mac: str) -> None:
+    def _abort_if_lock_configured(
+        self,
+        lock_mac: str,
+        *,
+        ignore_entry_id: str | None = None,
+    ) -> None:
         """
         Abort when some existing entry already carries this lock.
 
@@ -320,13 +325,32 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         cloud account is keyed by the account, so the same lock arriving
         by hand would otherwise be accepted and then collide on entity
         unique ids, leaving the second entry silently without entities.
+
+        `ignore_entry_id` skips the entry being reconfigured, which of
+        course already holds its own lock.
         """
         target = format_mac(lock_mac)
         for entry in self._async_current_entries(include_ignore=False):
+            if entry.entry_id == ignore_entry_id:
+                continue
             existing = cast("TtlockBleConfigData", cast("object", entry.data))
             for key in existing.get("keys", []):
                 if format_mac(key["lockMac"]) == target:
                     raise AbortFlow(ABORT_ALREADY_CONFIGURED)
+
+    @callback
+    def _abort_if_any_lock_configured(
+        self,
+        keys: list[TtlockBleStoredKey],
+        *,
+        ignore_entry_id: str | None = None,
+    ) -> None:
+        """Run the per-lock collision check across a whole fetched key set."""
+        for key in keys:
+            self._abort_if_lock_configured(
+                key["lockMac"],
+                ignore_entry_id=ignore_entry_id,
+            )
 
     async def _async_step_credentials_for_entry(
         self,
@@ -432,6 +456,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_finalize_create_entry(self) -> config_entries.ConfigFlowResult:
         """Re-issue login + list keys, then create the entry."""
         keys = await self._async_fetch_keys()
+        self._abort_if_any_lock_configured(keys)
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
@@ -445,6 +470,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Refresh keys and update an existing entry (reauth / reconfigure)."""
         keys = await self._async_fetch_keys()
+        self._abort_if_any_lock_configured(keys, ignore_entry_id=entry.entry_id)
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
