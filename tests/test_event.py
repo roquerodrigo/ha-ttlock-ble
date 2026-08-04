@@ -68,7 +68,48 @@ async def test_log_event_fires_on_new_record(
     assert state.attributes["timestamp"] == "2026-05-17T10:00:00"
     assert state.attributes["battery"] == 85
     assert state.attributes["uid"] == 1234
-    assert state.attributes["credential"] == "123456"
+    # The keypad code itself must never reach the recorder / the API.
+    assert "credential" not in state.attributes
+
+
+async def test_log_event_publishes_non_secret_credentials(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """A card number is an identifier, not a secret — it stays in the event."""
+    entry = LogEntry(
+        record_number=3,
+        record_type=int(LogOperate.IC_UNLOCK_SUCCEED),
+        operate_date=None,
+        lock_battery=85,
+        password="3819472054",
+    )
+    async_dispatcher_send(hass, log_signal(sample_virtual_key.lockMac), entry)
+    await hass.async_block_till_done()
+    assert _log_state(hass).attributes["credential"] == "3819472054"
+
+
+async def test_log_event_redacts_every_passcode_record_type(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """No record type that carries a working door code may publish it."""
+    from custom_components.ttlock_ble.event import PASSCODE_RECORD_TYPES
+
+    for index, record_type in enumerate(sorted(PASSCODE_RECORD_TYPES)):
+        entry = LogEntry(
+            record_number=100 + index,
+            record_type=int(record_type),
+            operate_date=None,
+            lock_battery=85,
+            password="998877",
+        )
+        async_dispatcher_send(hass, log_signal(sample_virtual_key.lockMac), entry)
+        await hass.async_block_till_done()
+        attributes = _log_state(hass).attributes
+        assert "credential" not in attributes, record_type
 
 
 async def test_log_event_includes_key_id_and_accessory_battery(

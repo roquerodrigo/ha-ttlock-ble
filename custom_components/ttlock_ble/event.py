@@ -37,6 +37,31 @@ LOG_EVENT_TYPES: list[str] = [
     "other",
 ]
 
+# Record types whose `password` field is a working door code rather than an
+# identifier. The SDK reuses one field for keypad codes, card numbers,
+# fingerprint ids and fob MACs; only the first are secret, and an HA event
+# attribute lands in the recorder database and is readable through the API
+# by any user, so those never leave this module.
+PASSCODE_RECORD_TYPES: frozenset[int] = frozenset(
+    {
+        LogOperate.KEYBOARD_PASSWORD_UNLOCK,
+        LogOperate.KEYBOARD_MODIFY_PASSWORD,
+        LogOperate.KEYBOARD_REMOVE_SINGLE_PASSWORD,
+        LogOperate.ERROR_PASSWORD_UNLOCK,
+        LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS,
+        LogOperate.KEYBOARD_PASSWORD_KICKED,
+        LogOperate.USE_DELETE_CODE,
+        LogOperate.PASSCODE_EXPIRED,
+        LogOperate.SPACE_INSUFFICIENT,
+        LogOperate.PASSCODE_IN_BLACK_LIST,
+        LogOperate.PASSCODE_LOCK,
+        LogOperate.PASSCODE_UNLOCK_FAILED_LOCK_REVERSE,
+        LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK,
+        LogOperate.ADMIN_CODE_UNLOCK,
+        LogOperate.ADD_PASSCODE_SUCCESSFULLY,
+    },
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
@@ -152,7 +177,9 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
             attributes["timestamp"] = entry.operate_date.isoformat()
         if entry.uid is not None:
             attributes["uid"] = entry.uid
-        if entry.password is not None:
+        if entry.password is not None and entry.record_type not in (
+            PASSCODE_RECORD_TYPES
+        ):
             attributes["credential"] = entry.password
         if entry.key_id is not None:
             attributes["key_id"] = entry.key_id
