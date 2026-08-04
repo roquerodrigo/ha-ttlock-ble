@@ -74,6 +74,7 @@ class TtlockBleConnection:
         self._disconnected = asyncio.Event()
         self._seen_records: set[int] = set()
         self._log_seeded = False
+        self._broadcast_connected = False
 
     @property
     def key(self) -> VirtualKey:
@@ -290,7 +291,16 @@ class TtlockBleConnection:
             await client.disconnect()
 
     def _broadcast_connection_state(self, *, connected: bool) -> None:
-        """Notify subscribers that the BLE link to this lock just changed."""
+        """
+        Notify subscribers that the BLE link to this lock just changed.
+
+        Repeats are dropped: the down edge is announced the moment bleak
+        reports the drop, and the teardown that eventually follows must
+        not announce it a second time.
+        """
+        if connected == self._broadcast_connected:
+            return
+        self._broadcast_connected = connected
         async_dispatcher_send(
             self._hass,
             connection_signal(self._key.lockMac),
@@ -306,8 +316,16 @@ class TtlockBleConnection:
         )
 
     def _on_disconnected(self, _client: BleakClient) -> None:
-        """Wake the maintain loop the moment bleak signals a drop."""
+        """
+        Wake the maintain loop the moment bleak signals a drop.
+
+        The drop is also announced here rather than from
+        `_async_disconnect_locked`: that runs after the reconnect
+        cooldown, so the connectivity sensor claimed a live link for
+        most of every cooldown cycle.
+        """
         self._disconnected.set()
+        self._broadcast_connection_state(connected=False)
 
     async def _async_maintain(self) -> None:
         """

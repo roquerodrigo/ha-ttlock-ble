@@ -531,6 +531,37 @@ async def test_run_command_wraps_non_ttlock_escapes(
     mock_ttlock_client.disconnect.assert_awaited()
 
 
+async def test_drop_is_broadcast_immediately_and_only_once(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """The down edge must not wait for the reconnect cooldown to elapse."""
+    from custom_components.ttlock_ble.connection import connection_signal
+
+    received: list[bool] = []
+    async_dispatcher_connect(
+        hass,
+        connection_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    await hass.async_block_till_done()
+    assert received == [True]
+
+    # bleak reports the drop; the teardown that follows must not repeat it.
+    mock_ttlock_client.is_connected = False
+    conn._on_disconnected(mock_ttlock_client)
+    await hass.async_block_till_done()
+    assert received == [True, False]
+
+    await conn.async_stop()
+    await hass.async_block_till_done()
+    assert received == [True, False]
+
+
 async def test_get_operation_log_is_bounded(
     hass,
     sample_virtual_key,
