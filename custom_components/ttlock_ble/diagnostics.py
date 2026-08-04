@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from homeassistant.components.bluetooth import async_last_service_info
-from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from ttlock_ble import LockAdvertisement
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .data import (
+        TtlockBleConfigData,
         TtlockBleConfigEntry,
         TtlockBleDiagnosticsAdvertisement,
         TtlockBleDiagnosticsEntry,
@@ -50,7 +51,7 @@ async def async_get_config_entry_diagnostics(
         async_redact_data(dict(entry.options), set(TO_REDACT)),
     )
     diag_entry: TtlockBleDiagnosticsEntry = {
-        "title": entry.title,
+        "title": _redacted_title(entry),
         "version": entry.version,
         "domain": entry.domain,
         "data": redacted_data,
@@ -69,6 +70,20 @@ async def async_get_config_entry_diagnostics(
             for key in entry.runtime_data.keys
         },
     }
+
+
+def _redacted_title(entry: TtlockBleConfigEntry) -> str:
+    """
+    Return the entry title, redacted when it is the cloud account name.
+
+    A cloud entry is titled with the username, so copying the title
+    verbatim reinstated the address that `TO_REDACT` removes from
+    `entry.data` one level below — into the dump the bug template asks
+    users to attach to public issues. A manual entry is titled with the
+    lock alias and carries nothing sensitive.
+    """
+    config = cast("TtlockBleConfigData", cast("object", entry.data))
+    return REDACTED if "username" in config else entry.title
 
 
 def _summarize_advertisement(

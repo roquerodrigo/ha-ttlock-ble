@@ -24,7 +24,34 @@ async def test_diagnostics_includes_entry_metadata(hass, setup_integration) -> N
     diag = await async_get_config_entry_diagnostics(hass, setup_integration)
     assert diag["entry"]["domain"] == "ttlock_ble"
     assert diag["entry"]["version"] == 1
-    assert "title" in diag["entry"]
+    # A cloud entry is titled with the account name — redacted like the rest.
+    assert diag["entry"]["title"] == "**REDACTED**"
+
+
+async def test_diagnostics_keeps_the_title_of_a_manual_entry(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    """A manual entry is titled with the lock alias, which is not sensitive."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"keys": [sample_stored_key]},
+        title="Front door",
+        unique_id="e9:ef:a0:bd:22:1d",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert diag["entry"]["title"] == "Front door"
 
 
 async def test_diagnostics_includes_lock_summary(
