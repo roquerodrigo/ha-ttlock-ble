@@ -138,6 +138,26 @@ class TestAdvertisementCrossCheck:
         ):
             assert _manual_key(hass).async_validate(dict(MANUAL_INPUT)) == {}
 
+    @pytest.mark.parametrize(
+        "typed",
+        ["aa:bb:cc:dd:ee:ff", "AA-BB-CC-DD-EE-FF", "  aa-bb-cc-dd-ee-ff  "],
+    )
+    async def test_cross_check_runs_whatever_spelling_was_pasted(
+        self,
+        hass,
+        typed: str,
+    ) -> None:
+        """The lookup is exact, so the MAC has to be normalised before it."""
+        with patch(
+            "custom_components.ttlock_ble.manual_key.async_last_service_info",
+            return_value=_advertisement_service_info(scene=4),
+        ) as lookup:
+            errors = _manual_key(hass).async_validate(
+                {**MANUAL_INPUT, "lock_mac": typed},
+            )
+        assert lookup.call_args.args[1] == MAC
+        assert errors["base"] == "protocol_mismatch"
+
     async def test_foreign_manufacturer_data_is_not_an_error(self, hass) -> None:
         info = MagicMock()
         info.manufacturer_data = {0x004C: b"\x02\x15"}

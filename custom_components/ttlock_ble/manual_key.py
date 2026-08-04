@@ -67,7 +67,7 @@ class TtlockBleManualKey:
         parses, and a key it cannot read would only fail at the first
         connection, long after the entry looked healthy.
         """
-        mac = user_input["lock_mac"].strip().replace("-", ":").upper()
+        mac = _normalized_mac(user_input["lock_mac"])
         name = (user_input.get("lock_name") or "").strip() or f"TTLock {mac}"
         aes_key = _aes_key_bytes(user_input["aes_key"])
         if aes_key is None:
@@ -122,7 +122,7 @@ class TtlockBleManualKey:
         answers. Silent when the lock has not been seen — being out of
         range is not an error.
         """
-        advertised = self._async_advertised(user_input["lock_mac"].strip())
+        advertised = self._async_advertised(_normalized_mac(user_input["lock_mac"]))
         if advertised is None:
             return {}
         entered = (
@@ -163,6 +163,19 @@ class TtlockBleManualKey:
             ):
                 return advertisement
         return None
+
+
+def _normalized_mac(raw: str) -> str:
+    """
+    Return `raw` in the uppercase-colon form the rest of the stack uses.
+
+    `async_last_service_info` is an exact lookup keyed by bleak's own
+    spelling, so a MAC pasted the way `bluetoothctl` prints it — or with
+    dashes, which the form's pattern accepts — silently found nothing
+    and skipped the advertisement cross-check entirely, letting through
+    exactly the typo that check exists to catch.
+    """
+    return raw.strip().replace("-", ":").upper()
 
 
 def _aes_key_bytes(raw: str) -> bytes | None:
