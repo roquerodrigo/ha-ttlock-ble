@@ -316,6 +316,68 @@ class TestReconfigure:
         assert result["reason"] == "reconfigure_successful"
         assert entry.data["keys"][0]["unlockKey"] == "654321"
 
+    async def test_reconfigure_moves_the_unique_id_with_a_corrected_mac(
+        self,
+        hass,
+        enable_custom_integrations,
+        mock_ttlock_connection,
+    ) -> None:
+        """Fixing a typo in the MAC must move the entry's unique id with it."""
+        key = _manual_key(hass).build(dict(MANUAL_INPUT))
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={"keys": [key.to_dict()]},
+            unique_id=MAC.lower(),
+        )
+        entry.add_to_hass(hass)
+        corrected = "AA:BB:CC:DD:EE:FF"
+        flow = await entry.start_reconfigure_flow(hass)
+        with patch(
+            "custom_components.ttlock_ble.manual_key.async_last_service_info",
+            return_value=None,
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                flow["flow_id"],
+                user_input={**MANUAL_INPUT, "lock_mac": corrected},
+            )
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.unique_id == corrected.lower()
+        assert entry.data["keys"][0]["lockMac"] == corrected
+
+    async def test_reconfigure_rejects_a_mac_another_entry_holds(
+        self,
+        hass,
+        enable_custom_integrations,
+        mock_ttlock_connection,
+    ) -> None:
+        """Retyping the MAC of an already-configured lock must abort."""
+        other = "AA:BB:CC:DD:EE:FF"
+        key = _manual_key(hass).build(dict(MANUAL_INPUT))
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={"keys": [key.to_dict()]},
+            unique_id=MAC.lower(),
+        )
+        entry.add_to_hass(hass)
+        other_key = _manual_key(hass).build({**MANUAL_INPUT, "lock_mac": other})
+        MockConfigEntry(
+            domain=DOMAIN,
+            data={"keys": [other_key.to_dict()]},
+            unique_id=other.lower(),
+        ).add_to_hass(hass)
+        flow = await entry.start_reconfigure_flow(hass)
+        with patch(
+            "custom_components.ttlock_ble.manual_key.async_last_service_info",
+            return_value=None,
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                flow["flow_id"],
+                user_input={**MANUAL_INPUT, "lock_mac": other},
+            )
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "already_configured"
+
     async def test_reconfigure_keeps_the_form_on_bad_input(
         self,
         hass,

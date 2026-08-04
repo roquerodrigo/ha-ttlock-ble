@@ -295,11 +295,19 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors = manual_key.async_validate(user_input)
             if not errors:
                 key = manual_key.build(user_input)
+                # The MAC is editable here, and it is this entry's unique id —
+                # correcting a typo has to move the id with it, or the old one
+                # keeps squatting and blocks re-adding the real lock.
+                self._abort_if_lock_configured(
+                    key.lockMac,
+                    ignore_entry_id=entry.entry_id,
+                )
                 data: TtlockBleConfigData = {
                     "keys": [cast("TtlockBleStoredKey", key.to_dict())],
                 }
                 return self.async_update_reload_and_abort(
                     entry,
+                    unique_id=format_mac(key.lockMac),
                     data_updates=dict(data),
                     title=key.lockAlias,
                 )
