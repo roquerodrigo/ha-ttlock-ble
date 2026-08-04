@@ -91,6 +91,7 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         self._attr_is_locking = False
         self._attr_is_unlocking = False
         self._settle_until: float = 0.0
+        self._command_lock = asyncio.Lock()
         self._sync_from_coordinator()
 
     @property
@@ -199,23 +200,35 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         away mid-round-trip) and `LockEntity.state` ranks `is_locking`
         above `is_locked`, so anything that skips the reset leaves the
         entity claiming a movement that already ended.
+
+        `_command_lock` serializes the bookkeeping, not just the wire:
+        HA runs concurrent service calls, and the BLE layer's own lock
+        only orders the round trips. Without it the first command to
+        finish would clear the flags and publish a settled state while
+        the second was still turning the bolt.
         """
-        self._set_in_flight(action)
-        try:
-            if action == "lock":
-                await self._connection.async_lock()
+        async with self._command_lock:
+            self._set_in_flight(action)
+            try:
+                if action == "lock":
+                    await self._connection.async_lock()
+                else:
+                    await self._connection.async_unlock()
+            except TTLockError as exc:
+                LOGGER.warning(
+                    "BLE %s failed for %s: %s",
+                    action,
+                    self._key.lockMac,
+                    exc,
+                )
+                msg = f"Failed to {action} {self._key.lockMac}: {exc}"
+                raise HomeAssistantError(msg) from exc
             else:
-                await self._connection.async_unlock()
-        except TTLockError as exc:
-            LOGGER.warning("BLE %s failed for %s: %s", action, self._key.lockMac, exc)
-            msg = f"Failed to {action} {self._key.lockMac}: {exc}"
-            raise HomeAssistantError(msg) from exc
-        else:
-            self._attr_is_locked = action == "lock"
-            self._settle_until = time.monotonic() + COMMAND_SETTLE_SECONDS
-        finally:
-            self._clear_in_flight()
-            self._write_state_if_added()
+                self._attr_is_locked = action == "lock"
+                self._settle_until = time.monotonic() + COMMAND_SETTLE_SECONDS
+            finally:
+                self._clear_in_flight()
+                self._write_state_if_added()
         self.hass.async_create_task(self._async_fetch_log_after_command())
         await self.coordinator.async_request_refresh()
 

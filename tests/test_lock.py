@@ -420,6 +420,51 @@ async def test_failed_command_clears_transitional_state(
     assert hass.states.get(state.entity_id).state == "locked"
 
 
+async def test_concurrent_commands_do_not_erase_each_others_state(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """A second command cannot publish a settled state while the first still runs."""
+    import asyncio
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_LOCK, SERVICE_UNLOCK
+
+    unlock_started = asyncio.Event()
+    release_unlock = asyncio.Event()
+
+    async def blocking_unlock() -> None:
+        unlock_started.set()
+        await release_unlock.wait()
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=blocking_unlock)
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    unlock_call = hass.async_create_task(
+        hass.services.async_call(
+            LOCK_DOMAIN, SERVICE_UNLOCK, {"entity_id": state.entity_id}, blocking=True
+        )
+    )
+    async with asyncio.timeout(5):
+        await unlock_started.wait()
+    lock_call = hass.async_create_task(
+        hass.services.async_call(
+            LOCK_DOMAIN, SERVICE_LOCK, {"entity_id": state.entity_id}, blocking=True
+        )
+    )
+    await asyncio.sleep(0)
+    # The lock command must be queued behind the running unlock, not resolve
+    # ahead of it and publish "locked" while the bolt is still moving.
+    assert hass.states.get(state.entity_id).state == "unlocking"
+    release_unlock.set()
+    await unlock_call
+    await lock_call
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+    mock_ttlock_connection.async_lock.assert_awaited_once()
+
+
 async def test_cancelled_command_clears_transitional_state(
     hass,
     setup_integration,
