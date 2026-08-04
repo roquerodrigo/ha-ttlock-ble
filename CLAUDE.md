@@ -91,11 +91,13 @@ Four things are load-bearing:
 - **The unlock key and admin passcode are stored verbatim.** The cloud path runs them through `decode_password()`; a locally obtained one is already plain, and decoding it again would corrupt it.
 - **The AES key is normalised to continuous hex on save.** The form accepts more separators than the library's `hex_key_to_bytes` parses (which takes comma, dot or continuous only), so a space-separated paste would be accepted and then fail at the first connection.
 - **The advertisement cross-checks the frame header.** Protocol type, version and scene are compared against what the lock broadcasts when it is in range, turning a typo into a form error instead of a lock that never answers. `group_id`/`org_id` are not in the advertisement and cannot be checked this way.
-- **A lock already held by another entry is rejected.** `_abort_if_lock_configured` scans the stored keys of every entry, because a cloud entry's unique id is the account, not the MAC — without it the same lock could be added twice and the second entry would silently collide on entity unique ids and get no entities.
+- **A lock already held by another entry is rejected.** `_abort_if_lock_configured` scans the stored keys of every entry, because a cloud entry's unique id is the account, not the MAC — without it the same lock could be added twice and the second entry would silently collide on entity unique ids and get no entities. Both directions are checked: `async_step_manual` for a single MAC, and `_abort_if_any_lock_configured` over every key a cloud login returns. The reconfigure paths pass `ignore_entry_id` so an entry never collides with itself.
 
 `username`/`password` are `NotRequired` on `TtlockBleConfigData` for exactly this reason; anything reading them must cope with their absence.
 
-`async_step_reauth_confirm` and `async_step_reconfigure` both funnel through the shared `_async_step_credentials_for_entry` body (login, then `async_update_reload_and_abort`); `async_get_options_flow` returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
+`async_step_reauth_confirm` and `async_step_reconfigure` both funnel through the shared `_async_step_credentials_for_entry` body, which applies `_abort_if_unique_id_mismatch` first — the entry is keyed by the account, so credentials for a *different* account are a mistake, not a re-authentication — then logs in and calls `async_update_reload_and_abort`. `async_step_reconfigure_manual` may change the MAC, which is that entry's unique id, so it moves the unique id along with it. `async_get_options_flow` returns `TtlockBleOptionsFlow` from `options_flow.py` (one class per file).
+
+Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions onto form errors rather than letting them escape; `_classify_cloud_error` only reports an authentication failure when the cloud actually rejected the request, so an outage or a rate limit no longer reads as a wrong password.
 
 ### Options flow
 
@@ -120,7 +122,9 @@ Four things are load-bearing:
 - An `asyncio.Lock` serializing query/lock/unlock commands.
 - A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
 - A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` before reconnecting — no immediate retry. **The cooldown paces that loop only.** It used to also veto `async_query_state`, and since the lock drops every idle session within seconds the loop re-armed it constantly, so the configured `scan_interval` never actually ran a poll (issue #42). Reads are rate-limited by their own callers instead.
-- A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe.
+- A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe. The BLE drop is announced from bleak's own callback, not from the teardown that follows the cooldown, so the connectivity sensor does not claim a live link for five minutes after the link died.
+- Backlog seeding: the first operation-log fetch that actually reaches the lock only fills `_seen_records` and dispatches nothing. The lock returns everything unsynced since its last cursor sync, and replaying that history as live events would fire automations for unlocks from days ago. Tying it to a *successful* fetch matters — a lock out of range at startup must not spend its seeding pass on a poll that read nothing.
+- A refusal to reconnect after `async_stop`: a late caller would otherwise take the lock's single central slot with no maintain loop left to release it.
 
 ### Passive advertisement tracking
 
@@ -136,6 +140,20 @@ Two details are load-bearing:
 An advertisement we cannot decode falls back to a coordinator refresh, but only while no state is known yet: that bootstrap is what makes the entity available seconds after HA boots instead of after a full `scan_interval`. Refreshing on *every* advertisement (the old behaviour) is what made the cooldown look necessary in the first place.
 
 The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
+
+### Lock entity
+
+`lock.py` reports the transitional states the platform defines — `locking` and `unlocking` — for as long as a command is on the wire, which is seconds: a BLE session has to be opened and the lock has to answer. Three things keep that honest:
+
+- The flags are cleared in `finally`. A command also ends in `asyncio.CancelledError` (HA cancels the service call when the client that issued it disconnects), and `LockEntity.state` ranks `is_locking` above `is_locked`, so any escape that skipped the reset left the entity claiming a movement that had ended.
+- `_command_lock` serializes the bookkeeping. The BLE layer's lock orders the round trips only; without an entity-level one, the first of two concurrent commands to finish published a settled state while the second was still turning the bolt.
+- `jammed`, `open` and `opening` are never reported. The firmware exposes no jam signal — only a bolt position and a success/failure byte — and has no latch command distinct from unlocking, so any value there would be a guess.
+
+`connection.py` converts everything that is not already a `TTLockError` into one, because the SDK's command path leaks `BleakError` from an unwrapped `write_gatt_char`, a bare `RuntimeError` from a rejected `checkUserTime`, and `ValueError` from the decrypt step.
+
+### Event entity
+
+`event.py` republishes decoded `LogEntry` records. The SDK carries keypad codes, card numbers, fingerprint ids and fob MACs in one `password` field; only the first are secret, so `PASSCODE_RECORD_TYPES` lists the record types whose value is a working door code and those never reach an event attribute. An attribute lands in the recorder database and is readable through the API by any user, admin or not.
 
 ### Diagnostics
 
