@@ -36,6 +36,14 @@ RECONNECT_INITIAL_BACKOFF = 1.0
 RECONNECT_MAX_BACKOFF = 300.0
 RECONNECT_COOLDOWN_SECONDS = 300.0
 
+# The lock answers the operation log one record per BLE frame, each with
+# its own timeout, and the SDK holds its command lock for the whole
+# pagination. Unbounded, a lock with a long unsynced history makes the
+# first fetch of a session sit in front of a user pressing Unlock for
+# tens of seconds. Anything older than this batch is picked up by the
+# next poll.
+MAX_LOG_ENTRIES_PER_FETCH = 25
+
 
 def event_signal(mac: str) -> str:
     """Dispatcher signal that carries `LockEvent`s for `mac`."""
@@ -154,7 +162,9 @@ class TtlockBleConnection:
                 LOGGER.warning("get_operation_log: no client for %s", self._key.lockMac)
                 return []
             try:
-                entries = await client.get_operation_log()
+                entries = await client.get_operation_log(
+                    max_entries=MAX_LOG_ENTRIES_PER_FETCH,
+                )
             except TTLockError as exc:
                 LOGGER.warning(
                     "get_operation_log failed for %s: %s",

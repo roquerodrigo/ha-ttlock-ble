@@ -531,6 +531,23 @@ async def test_run_command_wraps_non_ttlock_escapes(
     mock_ttlock_client.disconnect.assert_awaited()
 
 
+async def test_get_operation_log_is_bounded(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """The fetch holds the same lock commands need, so it has to be bounded."""
+    from custom_components.ttlock_ble.connection import MAX_LOG_ENTRIES_PER_FETCH
+
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_get_operation_log()
+    assert (
+        mock_ttlock_client.get_operation_log.await_args.kwargs["max_entries"]
+        == MAX_LOG_ENTRIES_PER_FETCH
+    )
+
+
 async def test_stopped_connection_refuses_to_reconnect(
     hass,
     sample_virtual_key,
