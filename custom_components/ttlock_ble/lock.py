@@ -11,11 +11,10 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from ttlock_ble import TTLockError
+from ttlock_ble import LockState, TTLockError
 
 from .connection import event_signal
 from .const import DOMAIN, LOGGER
-from .coordinator import LOCK_STATE_LOCKED, LOCK_STATE_UNLOCKED
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
@@ -146,14 +145,9 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             return
         self._async_create_tracked_task(self._async_query_and_apply(), "query_state")
 
-    def _apply_lock_state(self, raw_state: int) -> None:
+    def _apply_lock_state(self, raw_state: LockState) -> None:
         """Write `raw_state` onto `_attr_is_locked` respecting the settle window."""
-        if raw_state == LOCK_STATE_LOCKED:
-            new_locked = True
-        elif raw_state == LOCK_STATE_UNLOCKED:
-            new_locked = False
-        else:
-            return
+        new_locked = raw_state is LockState.LOCKED
         if time.monotonic() < self._settle_until and new_locked != self._attr_is_locked:
             LOGGER.debug(
                 "Suppressing %s flip for %s during command settle window",

@@ -590,27 +590,30 @@ async def test_lock_has_unique_id(hass, setup_integration, sample_virtual_key) -
     assert entry.unique_id == f"{sample_virtual_key.lockMac}_lock"
 
 
-async def test_lock_event_unknown_state_does_not_change_ui(
+async def test_push_with_an_undecodable_state_byte_falls_back_to_a_query(
     hass,
     setup_integration,
     mock_ttlock_connection,
     sample_virtual_key,
 ) -> None:
-    """A push tri-state value that is neither locked nor unlocked is ignored."""
+    """Build the event through the SDK, so the shape asserted is one it emits."""
     from homeassistant.helpers.dispatcher import async_dispatcher_send
     from ttlock_ble import LockEvent
 
     from custom_components.ttlock_ble.connection import event_signal
 
+    # A state byte outside the two the firmware defines decodes to None,
+    # which is the only "unknown" the entity can ever be handed.
+    event = LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x02, 0x00]))
+    assert event.lock_state is None
+
     state = hass.states.async_all("lock")[0]
     assert state.state == "locked"
-    async_dispatcher_send(
-        hass,
-        event_signal(sample_virtual_key.lockMac),
-        LockEvent(cmd_echo=0x14, status=1, data=b"", lock_state=2),
-    )
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=(1, 80))
+    async_dispatcher_send(hass, event_signal(sample_virtual_key.lockMac), event)
     await hass.async_block_till_done()
-    assert hass.states.get(state.entity_id).state == "locked"
+    mock_ttlock_connection.async_query_state.assert_awaited()
+    assert hass.states.get(state.entity_id).state == "unlocked"
 
 
 async def test_lock_event_forced_query_returns_none_keeps_state(
