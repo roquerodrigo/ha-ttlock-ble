@@ -319,6 +319,119 @@ async def test_lock_event_with_decoded_state_respects_settle_window(
     assert hass.states.get(state.entity_id).state == "unlocked"
 
 
+async def test_unlock_reports_unlocking_while_in_flight(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """The entity sits on `unlocking` for as long as the BLE command runs."""
+    import asyncio
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    started = asyncio.Event()
+    released = asyncio.Event()
+
+    async def blocking_unlock() -> None:
+        started.set()
+        await released.wait()
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=blocking_unlock)
+    state = hass.states.async_all("lock")[0]
+    assert state.state == "locked"
+    # The post-command refresh finds the lock out of range.
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    call = hass.async_create_task(
+        hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_UNLOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+    )
+    async with asyncio.timeout(5):
+        await started.wait()
+    assert hass.states.get(state.entity_id).state == "unlocking"
+    released.set()
+    await call
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+
+
+async def test_lock_reports_locking_while_in_flight(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """The entity sits on `locking` for as long as the BLE command runs."""
+    import asyncio
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_LOCK
+
+    started = asyncio.Event()
+    released = asyncio.Event()
+
+    async def blocking_lock() -> None:
+        started.set()
+        await released.wait()
+
+    mock_ttlock_connection.async_lock = AsyncMock(side_effect=blocking_lock)
+    # The post-command refresh finds the lock out of range.
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    call = hass.async_create_task(
+        hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_LOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+    )
+    async with asyncio.timeout(5):
+        await started.wait()
+    assert hass.states.get(state.entity_id).state == "locking"
+    released.set()
+    await call
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_failed_command_clears_transitional_state(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """A rejected command drops `unlocking` instead of stranding the UI on it."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=TTLockError("offline"))
+    state = hass.states.async_all("lock")[0]
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_UNLOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_lock_never_reports_jammed_or_open(hass, setup_integration) -> None:
+    """The firmware has no jam or latch signal, so those stay unreported."""
+    from homeassistant.components.lock import DATA_COMPONENT
+
+    state = hass.states.async_all("lock")[0]
+    entity = hass.data[DATA_COMPONENT].get_entity(state.entity_id)
+    assert entity is not None
+    assert entity.is_jammed is None
+    assert entity.is_open is None
+    assert entity.is_opening is None
+
+
 async def test_lock_has_unique_id(hass, setup_integration, sample_virtual_key) -> None:
     from homeassistant.helpers import entity_registry as er
 

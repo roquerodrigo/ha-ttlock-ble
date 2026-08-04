@@ -49,7 +49,16 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
     """
     Smart lock backed by a persistent `TtlockBleConnection`.
 
-    State is reported via `_attr_is_locked`. It is updated:
+    While a command is in flight the entity reports the transitional
+    states HA defines for the platform — `locking` and `unlocking` —
+    covering the BLE session setup plus the round trip to the lock,
+    which is seconds rather than milliseconds. `jammed`, `open` and
+    `opening` are deliberately never reported: the firmware exposes no
+    jam signal (only a bolt position and a success/failure byte) and
+    has no latch command distinct from unlocking, so any value there
+    would be a guess.
+
+    Settled state is reported via `_attr_is_locked`. It is updated:
     - On every coordinator refresh that returned a known lock state —
       which includes the state decoded from the lock's advertisements,
       the only channel that reports an auto-lock.
@@ -79,6 +88,8 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         super().__init__(coordinator, key)
         self._connection = connection
         self._attr_is_locked = None
+        self._attr_is_locking = False
+        self._attr_is_unlocking = False
         self._settle_until: float = 0.0
         self._sync_from_coordinator()
 
@@ -180,20 +191,35 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
 
     async def _async_run_command(self, action: str) -> None:
         """Dispatch the BLE command, optimistically update state, refresh."""
+        self._set_in_flight(action)
         try:
             if action == "lock":
                 await self._connection.async_lock()
             else:
                 await self._connection.async_unlock()
         except TTLockError as exc:
+            self._clear_in_flight()
+            self.async_write_ha_state()
             LOGGER.warning("BLE %s failed for %s: %s", action, self._key.lockMac, exc)
             msg = f"Failed to {action} {self._key.lockMac}: {exc}"
             raise HomeAssistantError(msg) from exc
+        self._clear_in_flight()
         self._attr_is_locked = action == "lock"
         self._settle_until = time.monotonic() + COMMAND_SETTLE_SECONDS
         self.async_write_ha_state()
         self.hass.async_create_task(self._async_fetch_log_after_command())
         await self.coordinator.async_request_refresh()
+
+    def _set_in_flight(self, action: str) -> None:
+        """Publish the transitional state for a command that just started."""
+        self._attr_is_locking = action == "lock"
+        self._attr_is_unlocking = action != "lock"
+        self.async_write_ha_state()
+
+    def _clear_in_flight(self) -> None:
+        """Drop the transitional state without publishing it on its own."""
+        self._attr_is_locking = False
+        self._attr_is_unlocking = False
 
     async def _async_fetch_log_after_command(self) -> None:
         """Fetch operation log shortly after a command to capture the new record."""
