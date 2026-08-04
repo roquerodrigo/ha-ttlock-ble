@@ -75,12 +75,13 @@ Banned: `typing.Any`, `object` as a value type, bare `dict` / `list` / `tuple` /
 
 Required:
 
-- `TypedDict` for known dict / JSON shapes (see `data.py` for the canonical
-  examples: `TtlockBlePost`, `TtlockBleConfigData`,
-  `TtlockBleOptionsData`, `TtlockBleDiagnosticsPayload`).
-- `@dataclass` for structured records (`TtlockBleData`).
-- Named `type` aliases for recursive / shared shapes — `JsonPrimitive`,
-  `JsonValue`, `JsonObject` in `data.py`.
+- `TypedDict` for known dict / JSON shapes (see the `data/` package for the
+  canonical examples: `TtlockBleConfigData`, `TtlockBleOptionsData`,
+  `TtlockBleLockState`, `TtlockBleLogEventAttributes`,
+  `TtlockBleDiagnosticsPayload`).
+- `@dataclass` for structured records (`TtlockBleData` in `data/runtime.py`).
+- Named `type` aliases for shapes composed from those classes —
+  `TtlockBleConfigEntry`, `TtlockBleCoordinatorData` in `data/__init__.py`.
 - `frozenset[str]` / `tuple[str, ...]` for fixed string collections.
 - `cast("TypedDictName", value)` at HA framework boundaries that hand us a
   permissive type (e.g. `entry.data` is `MappingProxyType[str, Any]`).
@@ -181,22 +182,28 @@ with a one-line comment explaining the deliberate narrowing — see
 ## Coordinator and runtime data
 
 - All API state flows through `entry.runtime_data: TtlockBleData`
-  (`data.py`). Never store integration state in `hass.data`.
-- The coordinator is typed as `DataUpdateCoordinator[TtlockBlePost]`
-  (or whatever your real payload TypedDict is). `_async_update_data` returns
-  the typed payload; client errors map to `UpdateFailed`,
-  authentication errors to `ConfigEntryAuthFailed` (which triggers reauth).
+  (`data/runtime.py`). Never store integration state in `hass.data`.
+- The coordinator is typed as `DataUpdateCoordinator[TtlockBleCoordinatorData]`
+  (or whatever your real payload alias is). `_async_update_data` returns the
+  typed payload. This integration deliberately does not raise `UpdateFailed`
+  for a single unreachable lock — one lock being out of range says nothing
+  about the others — so per-lock failures become blank readings and the
+  connectivity binary sensor reports the live link.
 
 ## Config / options / diagnostics
 
-- `config_flow.py` carries `user`, `verify_code`, `reauth_confirm` and
-  `reconfigure` steps. They share one `_credentials_schema` builder and one
-  `_async_step_credentials_for_entry` helper for the reauth/reconfigure path.
+- `config_flow.py` opens on a `user` menu and carries `cloud`, `manual`,
+  `verify_code`, `reauth_confirm`, `reconfigure` and `reconfigure_manual`
+  steps. The credential steps share one `_credentials_schema` builder and one
+  `_async_step_credentials_for_entry` helper; the two key steps share
+  `_manual_key_schema`.
 - `options_flow.py` holds the single `TtlockBleOptionsFlow`
   class. New options keys go into the `TtlockBleOptionsData`
-  TypedDict in `data.py`.
+  TypedDict in `data/options_data.py`.
 - `diagnostics.py` returns `TtlockBleDiagnosticsPayload`. Sensitive
-  keys go into the `TO_REDACT: frozenset[str]` constant.
+  keys go into the `TO_REDACT: frozenset[str]` constant. Values that are not
+  dictionary keys — the entry title, which is the account name for a cloud
+  entry — are redacted explicitly.
 
 ## Translations
 
