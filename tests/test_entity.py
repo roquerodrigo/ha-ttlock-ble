@@ -85,7 +85,6 @@ async def test_entity_lock_state_reads_from_coordinator(
         sample_virtual_key.lockMac: {
             "locked": True,
             "battery_level": 80,
-            "available": True,
         },
     }
     assert entity._lock_state is not None

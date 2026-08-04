@@ -82,7 +82,6 @@ async def test_diagnostics_includes_coordinator_state(
 ) -> None:
     diag = await async_get_config_entry_diagnostics(hass, setup_integration)
     state = diag["coordinator_state"][sample_virtual_key.lockMac]
-    assert state["available"] is True
     assert state["locked"] is True
 
 

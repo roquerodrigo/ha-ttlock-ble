@@ -94,7 +94,6 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         snapshot: TtlockBleLockState = {
             "locked": advertisement.lock_state is LockState.LOCKED,
             "battery_level": advertisement.battery,
-            "available": True,
         }
         self.async_set_updated_data({**(self.data or {}), mac: snapshot})
 
@@ -109,11 +108,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         for mac, result in zip(poll_tasks, results, strict=True):
             if isinstance(result, BaseException):
                 LOGGER.warning("Failed to poll %s: %s", mac, result)
-                state[mac] = {
-                    "locked": None,
-                    "battery_level": None,
-                    "available": False,
-                }
+                state[mac] = {"locked": None, "battery_level": None}
             else:
                 state[mac] = result
         return state
@@ -125,13 +120,12 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         """Query one lock through its persistent connection."""
         result = await connection.async_query_state()
         if result is None:
-            return {"locked": None, "battery_level": None, "available": False}
+            return {"locked": None, "battery_level": None}
         raw_state, battery = result
         await connection.async_get_operation_log()
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
-            "available": True,
         }
 
 

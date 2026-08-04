@@ -52,7 +52,6 @@ async def test_coordinator_polls_state_locked(hass, sample_virtual_key) -> None:
     state = data[sample_virtual_key.lockMac]
     assert state["locked"] is True
     assert state["battery_level"] == 75
-    assert state["available"] is True
 
 
 async def test_coordinator_polls_state_unlocked(hass, sample_virtual_key) -> None:
@@ -62,7 +61,7 @@ async def test_coordinator_polls_state_unlocked(hass, sample_virtual_key) -> Non
     assert data[sample_virtual_key.lockMac]["locked"] is False
 
 
-async def test_coordinator_marks_unavailable_when_query_returns_none(
+async def test_coordinator_blanks_the_readings_when_a_query_returns_none(
     hass,
     sample_virtual_key,
 ) -> None:
@@ -70,7 +69,6 @@ async def test_coordinator_marks_unavailable_when_query_returns_none(
     coordinator = _coordinator(hass, {sample_virtual_key.lockMac: conn})
     data = await coordinator._async_update_data()
     state = data[sample_virtual_key.lockMac]
-    assert state["available"] is False
     assert state["locked"] is None
     assert state["battery_level"] is None
 
@@ -118,17 +116,16 @@ async def test_apply_advertisement_publishes_state_without_polling(
     state = coordinator.data[sample_virtual_key.lockMac]
     assert state["locked"] is False
     assert state["battery_level"] == 66
-    assert state["available"] is True
     conn.async_query_state.assert_not_awaited()
 
 
 async def test_apply_advertisement_keeps_the_other_locks(hass) -> None:
     coordinator = _coordinator(hass, {})
-    coordinator.async_set_updated_data({"OTHER": {"available": False}})
+    coordinator.async_set_updated_data({"OTHER": {"locked": None}})
     coordinator.async_apply_advertisement(
         "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=False)
     )
-    assert coordinator.data["OTHER"] == {"available": False}
+    assert coordinator.data["OTHER"] == {"locked": None}
     assert coordinator.data["AA:BB:CC:DD:EE:FF"]["locked"] is True
 
 
@@ -136,7 +133,7 @@ async def test_has_state_is_false_until_a_lock_state_is_known(hass) -> None:
     coordinator = _coordinator(hass, {})
     assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is False
     coordinator.async_set_updated_data(
-        {"AA:BB:CC:DD:EE:FF": {"locked": None, "available": False}},
+        {"AA:BB:CC:DD:EE:FF": {"locked": None}},
     )
     assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is False
     coordinator.async_apply_advertisement(
