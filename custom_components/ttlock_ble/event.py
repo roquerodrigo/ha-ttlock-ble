@@ -23,10 +23,9 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ttlock_ble import LogEntry, VirtualKey
+    from ttlock_ble import LogEntry
 
-    from .coordinator import TtlockBleDataUpdateCoordinator
-    from .data import TtlockBleConfigEntry
+    from .data import TtlockBleConfigEntry, TtlockBleLogEventAttributes
 
 
 LOG_EVENT_TYPES: list[str] = [
@@ -139,15 +138,7 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
     """Fires when a new operation log entry is retrieved from the lock."""
 
     _attr_translation_key = "log"
-
-    def __init__(
-        self,
-        coordinator: TtlockBleDataUpdateCoordinator,
-        key: VirtualKey,
-    ) -> None:
-        """Bind the entity to its key + coordinator."""
-        super().__init__(coordinator, key)
-        self._attr_event_types = LOG_EVENT_TYPES
+    _attr_event_types = LOG_EVENT_TYPES
 
     @property
     def unique_id(self) -> str:
@@ -169,7 +160,7 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
     def _on_log_entry(self, entry: LogEntry) -> None:
         """Translate a LogEntry into an HA event fire."""
         event_type = _classify_record(entry.record_type)
-        attributes: dict[str, object] = {
+        attributes: TtlockBleLogEventAttributes = {
             "record_type": _record_type_name(entry.record_type),
             "battery": entry.lock_battery,
         }
@@ -185,5 +176,5 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
             attributes["key_id"] = entry.key_id
         if entry.accessory_battery is not None:
             attributes["accessory_battery"] = entry.accessory_battery
-        self._trigger_event(event_type, attributes)
+        self._trigger_event(event_type, dict(attributes))
         self.async_write_ha_state()
