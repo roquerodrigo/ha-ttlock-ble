@@ -175,3 +175,33 @@ async def test_scan_interval_picks_up_options(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data.coordinator.update_interval == timedelta(seconds=120)
+
+
+async def test_failed_platform_setup_still_stops_the_connections(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    """A platform that cannot be set up must not leave reconnect loops running."""
+    from unittest.mock import patch
+
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups",
+        side_effect=ImportError("no such platform"),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id) is False
+    await hass.async_block_till_done()
+    mock_ttlock_connection.async_stop.assert_awaited()

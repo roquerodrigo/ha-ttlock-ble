@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL, Platform
+from homeassistant.core import callback
 
 from ttlock_ble import VirtualKey
 
@@ -60,6 +61,23 @@ async def async_setup_entry(
         virtual_keys,
     )
 
+    async def _stop_connections() -> None:
+        for connection in connections.values():
+            await connection.async_stop()
+
+    @callback
+    def _stop_advertisement_tracking() -> None:
+        for unsub in bluetooth_unsubs:
+            unsub()
+
+    # Registered before the platforms are forwarded, so a platform that fails
+    # to import still gets its connections stopped. Otherwise the entry sits in
+    # SETUP_ERROR with one reconnect loop per lock holding the locks' single
+    # BLE slots, and each retry stacks another set on top. Callbacks run
+    # last-registered-first, so tracking stops before the connections do.
+    entry.async_on_unload(_stop_connections)
+    entry.async_on_unload(_stop_advertisement_tracking)
+
     # Trigger the first state refresh without awaiting it, so the config entry
     # can finish loading while connections settle. The task is still tracked by
     # Home Assistant and will be awaited by async_block_till_done in tests and
@@ -88,15 +106,16 @@ async def async_unload_entry(
     hass: HomeAssistant,
     entry: TtlockBleConfigEntry,
 ) -> bool:
-    """Tear down entities and stop the per-lock BLE connections."""
+    """
+    Unload the entities.
+
+    Stopping the connections and the advertisement subscriptions is
+    registered on the entry at setup time instead, so it also runs when
+    setup itself fails part-way through.
+    """
     if entry.runtime_data.first_refresh is not None:
         entry.runtime_data.first_refresh.cancel()
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    for unsub in entry.runtime_data.bluetooth_unsubs:
-        unsub()
-    for connection in entry.runtime_data.connections.values():
-        await connection.async_stop()
-    return unloaded
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_reload_entry(
