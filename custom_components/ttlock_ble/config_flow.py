@@ -367,10 +367,19 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         step_id: str,
         user_input: TtlockBleCredentialsInput | None,
     ) -> config_entries.ConfigFlowResult:
-        """Shared credential-prompt body for reauth + reconfigure."""
+        """
+        Shared credential-prompt body for reauth + reconfigure.
+
+        The entry is keyed by the account, so credentials for a
+        *different* account are not a re-authentication: accepting them
+        would repoint the entry at a second set of locks and leave the
+        original account's unique id unreachable for a fresh entry.
+        """
         errors: dict[str, str] = {}
         existing = cast("TtlockBleConfigData", cast("object", entry.data))
         if user_input is not None:
+            await self.async_set_unique_id(slugify(user_input["username"]))
+            self._abort_if_unique_id_mismatch(reason="wrong_account")
             self._username = user_input["username"]
             self._password = user_input["password"]
             errors = await self._async_login_for_existing_entry()

@@ -88,7 +88,8 @@
     "abort": {
       "already_configured": "This lock or account is already configured.",
       "reauth_successful": "Re-authentication was successful.",
-      "reconfigure_successful": "Reconfiguration was successful."
+      "reconfigure_successful": "Reconfiguration was successful.",
+      "wrong_account": "The credentials entered belong to a different TTLock account. Re-authenticate with the account this entry was created from."
     }
   },
   "options": {

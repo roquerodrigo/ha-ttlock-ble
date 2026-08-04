@@ -138,6 +138,41 @@ async def test_step_user_duplicate_aborts(
     assert result["reason"] == "already_configured"
 
 
+async def test_reauth_rejects_a_different_account(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    """Credentials for another account are not a re-authentication."""
+    entry = _existing_entry(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        flow = await entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"],
+            user_input={"username": "someone.else@example.com", "password": "pass"},
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "wrong_account"
+    assert entry.data["username"] == "user@example.com"
+
+
+async def test_reconfigure_rejects_a_different_account(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    """The same guard applies when editing credentials from the three-dot menu."""
+    entry = _existing_entry(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        flow = await entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"],
+            user_input={"username": "someone.else@example.com", "password": "pass"},
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "wrong_account"
+
+
 async def test_step_cloud_aborts_when_a_lock_is_already_configured(
     hass,
     enable_custom_integrations,

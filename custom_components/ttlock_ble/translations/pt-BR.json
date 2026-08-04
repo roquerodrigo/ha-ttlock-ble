@@ -88,7 +88,8 @@
     "abort": {
       "already_configured": "Esta fechadura ou conta já está configurada.",
       "reauth_successful": "Re-autenticação concluída com sucesso.",
-      "reconfigure_successful": "Reconfiguração concluída com sucesso."
+      "reconfigure_successful": "Reconfiguração concluída com sucesso.",
+      "wrong_account": "As credenciais informadas pertencem a outra conta TTLock. Autentique novamente com a conta que originou esta entrada."
     }
   },
   "options": {
