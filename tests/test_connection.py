@@ -531,6 +531,25 @@ async def test_run_command_wraps_non_ttlock_escapes(
     mock_ttlock_client.disconnect.assert_awaited()
 
 
+async def test_stopped_connection_refuses_to_reconnect(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A late caller must not reopen the lock's single slot after unload."""
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    mock_ttlock_client.connect.reset_mock()
+    await conn.async_stop()
+
+    assert await conn.async_query_state() is None
+    assert await conn.async_get_operation_log() == []
+    with pytest.raises(TTLockError, match="not reachable"):
+        await conn.async_lock()
+    mock_ttlock_client.connect.assert_not_awaited()
+
+
 async def test_run_command_lets_cancellation_through(
     hass,
     sample_virtual_key,

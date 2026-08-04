@@ -14,11 +14,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from ttlock_ble import TTLockError
 
 from .connection import event_signal
-from .const import LOGGER
+from .const import DOMAIN, LOGGER
 from .coordinator import LOCK_STATE_LOCKED, LOCK_STATE_UNLOCKED
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -137,7 +139,7 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         if event.lock_state is not None:
             self._apply_lock_state(event.lock_state)
             return
-        self.hass.async_create_task(self._async_query_and_apply())
+        self._async_create_tracked_task(self._async_query_and_apply(), "query_state")
 
     def _apply_lock_state(self, raw_state: int) -> None:
         """Write `raw_state` onto `_attr_is_locked` respecting the settle window."""
@@ -155,7 +157,7 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             )
             return
         self._attr_is_locked = new_locked
-        self.async_write_ha_state()
+        self._write_state_if_added()
 
     def _sync_from_coordinator(self) -> None:
         """
@@ -229,14 +231,35 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             finally:
                 self._clear_in_flight()
                 self._write_state_if_added()
-        self.hass.async_create_task(self._async_fetch_log_after_command())
+        self._async_create_tracked_task(
+            self._async_fetch_log_after_command(),
+            "fetch_log_after_command",
+        )
         await self.coordinator.async_request_refresh()
+
+    def _async_create_tracked_task(
+        self,
+        coro: Coroutine[None, None, None],
+        name: str,
+    ) -> None:
+        """
+        Run `coro` as a task the config entry owns.
+
+        A bare `hass.async_create_task` is not tied to the entry, so it
+        survives an unload and goes on talking to a connection that was
+        already stopped.
+        """
+        self.coordinator.config_entry.async_create_task(
+            self.hass,
+            coro,
+            name=f"{DOMAIN}.{name}.{self._key.lockMac}",
+        )
 
     def _set_in_flight(self, action: str) -> None:
         """Publish the transitional state for a command that just started."""
         self._attr_is_locking = action == "lock"
         self._attr_is_unlocking = action != "lock"
-        self.async_write_ha_state()
+        self._write_state_if_added()
 
     def _clear_in_flight(self) -> None:
         """Drop the transitional state without publishing it on its own."""

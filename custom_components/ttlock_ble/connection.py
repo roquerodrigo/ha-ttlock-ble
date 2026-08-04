@@ -235,8 +235,13 @@ class TtlockBleConnection:
         Return a live client, opening a new BLE session if needed.
 
         Caller must hold `self._lock`. Returns `None` on failure (lock
-        not discoverable or BLE connect raised).
+        not discoverable or BLE connect raised), and once `async_stop`
+        has run: a late caller that opened a session then would take the
+        lock's single central slot with nobody left to close it, and
+        block the connection the reloaded entry is trying to make.
         """
+        if self._closing:
+            return None
         if self._client is not None and self._client.is_connected:
             return self._client
         await self._async_disconnect_locked()
