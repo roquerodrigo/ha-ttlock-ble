@@ -471,3 +471,41 @@ async def test_run_command_wraps_timeout_error(
     with pytest.raises(TTLockError, match="timed out responding to lock"):
         await conn.async_lock()
     mock_ttlock_client.disconnect.assert_awaited()
+
+
+@pytest.mark.parametrize(
+    "escape",
+    [
+        RuntimeError("checkUserTime FAILED: status=0x0 err=03"),
+        ValueError("invalid padding"),
+        OSError("le-connection-abort-by-local"),
+    ],
+)
+async def test_run_command_wraps_non_ttlock_escapes(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    escape,
+) -> None:
+    """Exceptions the SDK does not wrap still reach callers as `TTLockError`."""
+    mock_ttlock_client.unlock = AsyncMock(side_effect=escape)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with pytest.raises(TTLockError, match="failed to unlock"):
+        await conn.async_unlock()
+    mock_ttlock_client.disconnect.assert_awaited()
+
+
+async def test_run_command_lets_cancellation_through(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """Cancellation is not swallowed by the catch-all — callers must see it."""
+    import asyncio
+
+    mock_ttlock_client.lock = AsyncMock(side_effect=asyncio.CancelledError)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with pytest.raises(asyncio.CancelledError):
+        await conn.async_lock()

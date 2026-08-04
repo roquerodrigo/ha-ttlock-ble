@@ -176,10 +176,14 @@ class TtlockBleConnection:
         """
         Acquire the lock, ensure connected, then call `lock`/`unlock`.
 
-        Catches `asyncio.TimeoutError` as a defensive belt-and-suspenders
-        in case a future SDK release lets one slip through; converts it
-        to `TTLockError` so callers only ever see the integration's own
-        exception hierarchy.
+        Everything that is not already a `TTLockError` is converted into
+        one so callers only ever see the integration's own exception
+        hierarchy. That is not belt-and-suspenders: the SDK's command
+        path reaches `bleak.write_gatt_char` unwrapped (`BleakError`
+        when the link drops mid-command), raises a bare `RuntimeError`
+        when the lock rejects `checkUserTime`, and lets `ValueError` out
+        of `aes_decrypt` on a garbled frame. `TTLockError` subclasses
+        `RuntimeError`, so it has to be caught first.
         """
         async with self._lock:
             client = await self._async_ensure_connected_locked()
@@ -197,6 +201,10 @@ class TtlockBleConnection:
             except TimeoutError as exc:
                 await self._async_disconnect_locked()
                 msg = f"Lock {self._key.lockMac} timed out responding to {action}"
+                raise TTLockError(msg) from exc
+            except Exception as exc:
+                await self._async_disconnect_locked()
+                msg = f"Lock {self._key.lockMac} failed to {action}: {exc}"
                 raise TTLockError(msg) from exc
 
     async def _async_ensure_connected_locked(self) -> TTLockClient | None:

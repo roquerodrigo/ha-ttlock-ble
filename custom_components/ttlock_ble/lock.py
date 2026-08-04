@@ -190,7 +190,16 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         await self._async_run_command("unlock")
 
     async def _async_run_command(self, action: str) -> None:
-        """Dispatch the BLE command, optimistically update state, refresh."""
+        """
+        Dispatch the BLE command, optimistically update state, refresh.
+
+        The transitional state is cleared in `finally`, not on the error
+        path: a command can also end in `asyncio.CancelledError` (HA
+        cancels the service call when the client that issued it goes
+        away mid-round-trip) and `LockEntity.state` ranks `is_locking`
+        above `is_locked`, so anything that skips the reset leaves the
+        entity claiming a movement that already ended.
+        """
         self._set_in_flight(action)
         try:
             if action == "lock":
@@ -198,15 +207,15 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             else:
                 await self._connection.async_unlock()
         except TTLockError as exc:
-            self._clear_in_flight()
-            self.async_write_ha_state()
             LOGGER.warning("BLE %s failed for %s: %s", action, self._key.lockMac, exc)
             msg = f"Failed to {action} {self._key.lockMac}: {exc}"
             raise HomeAssistantError(msg) from exc
-        self._clear_in_flight()
-        self._attr_is_locked = action == "lock"
-        self._settle_until = time.monotonic() + COMMAND_SETTLE_SECONDS
-        self.async_write_ha_state()
+        else:
+            self._attr_is_locked = action == "lock"
+            self._settle_until = time.monotonic() + COMMAND_SETTLE_SECONDS
+        finally:
+            self._clear_in_flight()
+            self._write_state_if_added()
         self.hass.async_create_task(self._async_fetch_log_after_command())
         await self.coordinator.async_request_refresh()
 
@@ -220,6 +229,11 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         """Drop the transitional state without publishing it on its own."""
         self._attr_is_locking = False
         self._attr_is_unlocking = False
+
+    def _write_state_if_added(self) -> None:
+        """Publish state, unless the entity was removed while we were awaiting."""
+        if self.hass is not None and self.entity_id is not None:
+            self.async_write_ha_state()
 
     async def _async_fetch_log_after_command(self) -> None:
         """Fetch operation log shortly after a command to capture the new record."""

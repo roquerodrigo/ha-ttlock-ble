@@ -420,6 +420,67 @@ async def test_failed_command_clears_transitional_state(
     assert hass.states.get(state.entity_id).state == "locked"
 
 
+async def test_cancelled_command_clears_transitional_state(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """A cancelled command must not strand the entity on `unlocking`."""
+    import asyncio
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    started = asyncio.Event()
+
+    async def never_returns() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=never_returns)
+    state = hass.states.async_all("lock")[0]
+    call = hass.async_create_task(
+        hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_UNLOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+    )
+    async with asyncio.timeout(5):
+        await started.wait()
+    assert hass.states.get(state.entity_id).state == "unlocking"
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_non_ttlock_error_clears_transitional_state(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """A BleakError-style escape is wrapped and does not strand the entity."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    mock_ttlock_connection.async_unlock = AsyncMock(
+        side_effect=RuntimeError("checkUserTime FAILED: status=0x0")
+    )
+    state = hass.states.async_all("lock")[0]
+    with pytest.raises(RuntimeError):
+        await hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_UNLOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
 async def test_lock_never_reports_jammed_or_open(hass, setup_integration) -> None:
     """The firmware has no jam or latch signal, so those stay unreported."""
     from homeassistant.components.lock import DATA_COMPONENT
