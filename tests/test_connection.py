@@ -424,38 +424,73 @@ async def test_get_operation_log_dispatches_only_new_records(
     mock_ttlock_client.get_operation_log = AsyncMock(return_value=first)
     conn = TtlockBleConnection(hass, sample_virtual_key)
 
+    # The first successful fetch is the seeding pass: the backlog is history.
     new_entries = await conn.async_get_operation_log()
     await hass.async_block_till_done()
-    assert [e.record_number for e in new_entries] == [1, 2]
-    assert [e.record_number for e in received] == [1, 2]
+    assert new_entries == []
+    assert received == []
 
-    # A second fetch returning the same records plus a new one only emits the new.
+    # A later fetch returning the same records plus a new one only emits the new.
     second = [_log_entry(1), _log_entry(2), _log_entry(3)]
     mock_ttlock_client.get_operation_log = AsyncMock(return_value=second)
     new_entries = await conn.async_get_operation_log()
     await hass.async_block_till_done()
     assert [e.record_number for e in new_entries] == [3]
-    assert [e.record_number for e in received] == [1, 2, 3]
+    assert [e.record_number for e in received] == [3]
 
 
-async def test_get_operation_log_skips_dispatch_when_disabled(
+async def test_seeding_waits_for_a_fetch_that_reached_the_lock(
     hass,
     sample_virtual_key,
     mock_ble_resolver,
     mock_ttlock_client,
 ) -> None:
-    """With `dispatch=False` new records are returned but never broadcast."""
+    """A lock out of range at startup must not spend its seeding pass."""
     received: list[object] = []
     async_dispatcher_connect(
         hass,
         log_signal(sample_virtual_key.lockMac),
         received.append,
     )
-    mock_ttlock_client.get_operation_log = AsyncMock(return_value=[_log_entry(7)])
     conn = TtlockBleConnection(hass, sample_virtual_key)
-    new_entries = await conn.async_get_operation_log(dispatch=False)
+
+    # Out of range: no client, so nothing was seen and nothing was seeded.
+    with patch(
+        "custom_components.ttlock_ble.connection.async_ble_device_from_address",
+        return_value=None,
+    ):
+        assert await conn.async_get_operation_log() == []
+
+    # And the fetch that does reach the lock is still the seeding pass.
+    backlog = [_log_entry(1), _log_entry(2), _log_entry(3)]
+    mock_ttlock_client.get_operation_log = AsyncMock(return_value=backlog)
+    assert await conn.async_get_operation_log() == []
     await hass.async_block_till_done()
-    assert [e.record_number for e in new_entries] == [7]
+    assert received == []
+
+
+async def test_seeding_is_not_spent_by_a_failed_fetch(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A fetch that raised did not observe the backlog, so it cannot seed."""
+    received: list[object] = []
+    async_dispatcher_connect(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        side_effect=TTLockError("read log fail"),
+    )
+    assert await conn.async_get_operation_log() == []
+
+    mock_ttlock_client.get_operation_log = AsyncMock(return_value=[_log_entry(9)])
+    assert await conn.async_get_operation_log() == []
+    await hass.async_block_till_done()
     assert received == []
 
 

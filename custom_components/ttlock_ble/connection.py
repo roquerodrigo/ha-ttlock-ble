@@ -65,6 +65,7 @@ class TtlockBleConnection:
         self._closing = False
         self._disconnected = asyncio.Event()
         self._seen_records: set[int] = set()
+        self._log_seeded = False
 
     @property
     def key(self) -> VirtualKey:
@@ -131,8 +132,22 @@ class TtlockBleConnection:
         """Send an UNLOCK command on the live connection (raises on failure)."""
         await self._async_run_command("unlock")
 
-    async def async_get_operation_log(self, *, dispatch: bool = True) -> list[LogEntry]:
-        """Fetch operation records from the lock and dispatch new ones."""
+    async def async_get_operation_log(self) -> list[LogEntry]:
+        """
+        Fetch operation records from the lock and dispatch the new ones.
+
+        The first fetch that actually reaches the lock only seeds
+        `_seen_records` and returns nothing. The lock hands back
+        everything unsynced since its last cursor sync, and that set is
+        history — replaying it through the event entity would fire
+        automations for unlocks that happened days ago. `_seen_records`
+        lives in memory, so the seeding pass runs once per HA start,
+        which is exactly when the backlog would otherwise arrive.
+
+        Seeding is tied to a successful fetch, not to an attempt: a lock
+        out of range at startup gets its seeding pass whenever it first
+        answers.
+        """
         async with self._lock:
             client = await self._async_ensure_connected_locked()
             if client is None:
@@ -158,7 +173,15 @@ class TtlockBleConnection:
             if entry.record_number not in self._seen_records:
                 self._seen_records.add(entry.record_number)
                 new_entries.append(entry)
-        if new_entries and dispatch:
+        if not self._log_seeded:
+            self._log_seeded = True
+            LOGGER.debug(
+                "Lock %s: seeded %d existing log records, none dispatched",
+                self._key.lockMac,
+                len(new_entries),
+            )
+            return []
+        if new_entries:
             LOGGER.debug(
                 "Lock %s: dispatching %d new log entries",
                 self._key.lockMac,

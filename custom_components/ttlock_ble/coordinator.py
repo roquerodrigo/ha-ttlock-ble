@@ -61,7 +61,6 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             update_interval=scan_interval,
         )
         self._connections = connections
-        self._first_refresh_done = False
 
     @property
     def connections(self) -> dict[str, TtlockBleConnection]:
@@ -106,7 +105,6 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             for mac, connection in self._connections.items()
         }
         results = await asyncio.gather(*poll_tasks.values(), return_exceptions=True)
-        self._first_refresh_done = True
         state: TtlockBleCoordinatorData = {}
         for mac, result in zip(poll_tasks, results, strict=True):
             if isinstance(result, BaseException):
@@ -129,9 +127,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         if result is None:
             return {"locked": None, "battery_level": None, "available": False}
         raw_state, battery = result
-        await connection.async_get_operation_log(
-            dispatch=self._first_refresh_done,
-        )
+        await connection.async_get_operation_log()
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
