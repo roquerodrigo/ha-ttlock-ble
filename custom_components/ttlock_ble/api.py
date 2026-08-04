@@ -16,7 +16,7 @@ import httpx
 
 from ttlock_ble import CloudError, TTLockCloud
 
-from .const import CLOUD_ERR_NEW_DEVICE_LOGIN
+from .const import CLOUD_ERR_NEW_DEVICE_LOGIN, HTTP_STATUS_UNAUTHORIZED
 from .exceptions import (
     TtlockBleApiClientAuthenticationError,
     TtlockBleApiClientCommunicationError,
@@ -91,9 +91,30 @@ class TtlockBleApiClient:
 
     @staticmethod
     def _classify_cloud_error(exc: CloudError) -> TtlockBleApiClientError:
-        """Map a `CloudError` onto the integration's exception hierarchy."""
+        """
+        Map a `CloudError` onto the integration's exception hierarchy.
+
+        The SDK raises `CloudError` for two distinct things: the cloud
+        answering with a non-zero `errcode`, and any HTTP status at or
+        above 400 whose body it could not parse (which it reports as
+        `http_status`). Only the first says anything about the
+        credentials. Treating both as an authentication failure — the
+        previous behaviour — told users to rotate a working password
+        during a cloud outage or a rate limit, and looped reauth.
+
+        Anything the body does not identify stays the base error, which
+        the config flow shows as "unknown" rather than blaming the
+        password.
+        """
         body = exc.body
+        status = body.get("http_status")
+        if isinstance(status, int):
+            if status in HTTP_STATUS_UNAUTHORIZED:
+                return TtlockBleApiClientAuthenticationError(str(exc))
+            return TtlockBleApiClientCommunicationError(str(exc))
         errcode = body.get("errorCode") or body.get("errcode")
         if errcode == CLOUD_ERR_NEW_DEVICE_LOGIN:
             return TtlockBleApiClientVerificationRequiredError(str(exc))
-        return TtlockBleApiClientAuthenticationError(str(exc))
+        if errcode is not None:
+            return TtlockBleApiClientAuthenticationError(str(exc))
+        return TtlockBleApiClientError(str(exc))

@@ -89,14 +89,16 @@ async def test_request_verification_code_happy(mock_cloud: MagicMock) -> None:
     )
 
 
-async def test_request_verification_code_cloud_error_becomes_auth(
+async def test_request_verification_code_unclassifiable_error_stays_generic(
     mock_cloud: MagicMock,
 ) -> None:
+    """A body with no errcode says nothing about the credentials."""
     mock_cloud.request_login_verification_code = AsyncMock(
         side_effect=CloudError({"errmsg": "blocked"}),
     )
-    with pytest.raises(TtlockBleApiClientAuthenticationError):
+    with pytest.raises(TtlockBleApiClientError) as raised:
         await _client(mock_cloud).async_request_verification_code("x")
+    assert type(raised.value) is TtlockBleApiClientError
 
 
 async def test_request_verification_code_httpx_error_becomes_communication(
@@ -117,11 +119,12 @@ async def test_validate_new_device_happy(mock_cloud: MagicMock) -> None:
     mock_cloud.login.assert_awaited_once_with("user", "pw")
 
 
-async def test_validate_new_device_cloud_error_becomes_auth(
+async def test_validate_new_device_rejected_code_becomes_auth(
     mock_cloud: MagicMock,
 ) -> None:
+    """A server-reported errcode is a rejection, and reads as one."""
     mock_cloud.validate_new_device = AsyncMock(
-        side_effect=CloudError({"errmsg": "bad code"}),
+        side_effect=CloudError({"errcode": -2012, "errmsg": "bad code"}),
     )
     with pytest.raises(TtlockBleApiClientAuthenticationError):
         await _client(mock_cloud).async_validate_new_device_and_login(
@@ -146,8 +149,10 @@ async def test_list_keys_returns_what_cloud_returns(
     assert result == [sample_virtual_key]
 
 
-async def test_list_keys_cloud_error_becomes_auth(mock_cloud: MagicMock) -> None:
-    mock_cloud.list_keys = AsyncMock(side_effect=CloudError({"errmsg": "session"}))
+async def test_list_keys_expired_session_becomes_auth(mock_cloud: MagicMock) -> None:
+    mock_cloud.list_keys = AsyncMock(
+        side_effect=CloudError({"errcode": -2019, "errmsg": "session"}),
+    )
     with pytest.raises(TtlockBleApiClientAuthenticationError):
         await _client(mock_cloud).async_list_keys()
 
@@ -164,7 +169,31 @@ def test_credentials_property_returns_cloud_creds(mock_cloud: MagicMock) -> None
     assert _client(mock_cloud).credentials is mock_cloud.creds
 
 
-def test_classify_falls_back_to_auth_when_no_errcode(mock_cloud: MagicMock) -> None:
-    err = CloudError({"http_status": 500, "text": "boom"})
+@pytest.mark.parametrize("status", [500, 502, 503, 429, 408])
+def test_classify_maps_transport_failures_to_communication(status: int) -> None:
+    """An outage or a rate limit must never read as a wrong password."""
+    err = CloudError({"http_status": status, "text": "boom"})
+    classified = TtlockBleApiClient._classify_cloud_error(err)
+    assert isinstance(classified, TtlockBleApiClientCommunicationError)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_classify_maps_unauthorized_statuses_to_auth(status: int) -> None:
+    err = CloudError({"http_status": status, "text": "nope"})
     classified = TtlockBleApiClient._classify_cloud_error(err)
     assert isinstance(classified, TtlockBleApiClientAuthenticationError)
+
+
+def test_classify_keeps_an_unidentified_body_generic() -> None:
+    """No errcode and no status: nothing here blames the credentials."""
+    classified = TtlockBleApiClient._classify_cloud_error(
+        CloudError({"message": "no uid in login response"}),
+    )
+    assert type(classified) is TtlockBleApiClientError
+
+
+def test_classify_still_detects_the_2fa_errcode() -> None:
+    classified = TtlockBleApiClient._classify_cloud_error(
+        CloudError({"errorCode": -1014, "errmsg": "new device"}),
+    )
+    assert isinstance(classified, TtlockBleApiClientVerificationRequiredError)
