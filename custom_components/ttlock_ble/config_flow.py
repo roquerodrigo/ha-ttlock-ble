@@ -192,7 +192,9 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._password = user_input["password"]
             errors = await self._async_login_and_maybe_request_code()
             if not errors:
-                return await self._async_finalize_create_entry()
+                created, errors = await self._async_finalize_create_entry()
+                if created is not None:
+                    return created
             if errors.get("base") == "verification_required":
                 return await self.async_step_verify_code()
         return self.async_show_form(
@@ -241,7 +243,9 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input["verification_code"],
             )
             if not errors:
-                return await self._async_finalize_create_entry()
+                created, errors = await self._async_finalize_create_entry()
+                if created is not None:
+                    return created
         return self.async_show_form(
             step_id="verify_code",
             data_schema=_verification_schema(),
@@ -384,7 +388,9 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._password = user_input["password"]
             errors = await self._async_login_for_existing_entry()
             if not errors:
-                return await self._async_finalize_update_entry(entry)
+                updated, errors = await self._async_finalize_update_entry(entry)
+                if updated is not None:
+                    return updated
         return self.async_show_form(
             step_id=step_id,
             data_schema=_credentials_schema(
@@ -470,34 +476,60 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             return {"base": "unknown"}
         return {}
 
-    async def _async_finalize_create_entry(self) -> config_entries.ConfigFlowResult:
+    async def _async_finalize_create_entry(
+        self,
+    ) -> tuple[config_entries.ConfigFlowResult | None, dict[str, str]]:
         """Re-issue login + list keys, then create the entry."""
-        keys = await self._async_fetch_keys()
+        keys, errors = await self._async_fetch_keys()
+        if errors:
+            return None, errors
         self._abort_if_any_lock_configured(keys)
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
             "keys": keys,
         }
-        return self.async_create_entry(title=self._username, data=dict(data))
+        return self.async_create_entry(title=self._username, data=dict(data)), {}
 
     async def _async_finalize_update_entry(
         self,
         entry: TtlockBleConfigEntry,
-    ) -> config_entries.ConfigFlowResult:
+    ) -> tuple[config_entries.ConfigFlowResult | None, dict[str, str]]:
         """Refresh keys and update an existing entry (reauth / reconfigure)."""
-        keys = await self._async_fetch_keys()
+        keys, errors = await self._async_fetch_keys()
+        if errors:
+            return None, errors
         self._abort_if_any_lock_configured(keys, ignore_entry_id=entry.entry_id)
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
             "keys": keys,
         }
-        return self.async_update_reload_and_abort(entry, data_updates=dict(data))
+        return self.async_update_reload_and_abort(entry, data_updates=dict(data)), {}
 
-    async def _async_fetch_keys(self) -> list[TtlockBleStoredKey]:
-        """Login once more and pull the current key set from the cloud."""
+    async def _async_fetch_keys(
+        self,
+    ) -> tuple[list[TtlockBleStoredKey], dict[str, str]]:
+        """
+        Login once more and pull the current key set from the cloud.
+
+        Mapped to form errors like every sibling cloud call: this one
+        runs after the credentials (and possibly a verification code)
+        were already accepted, so letting a network blip escape would
+        discard that work behind a generic error dialog instead of
+        re-showing the form.
+        """
         client = TtlockBleApiClient(httpx_client=get_async_client(self.hass))
-        await client.async_login(self._username, self._password)
-        virtual_keys = await client.async_list_keys()
-        return [cast("TtlockBleStoredKey", key.to_dict()) for key in virtual_keys]
+        try:
+            await client.async_login(self._username, self._password)
+            virtual_keys = await client.async_list_keys()
+        except TtlockBleApiClientAuthenticationError as exc:
+            LOGGER.warning("Cloud rejected the login while listing keys: %s", exc)
+            return [], {"base": "auth"}
+        except TtlockBleApiClientCommunicationError as exc:
+            LOGGER.error("Failed to reach TTLock while listing keys: %s", exc)
+            return [], {"base": "connection"}
+        except TtlockBleApiClientError as exc:
+            LOGGER.exception("Unknown error listing keys: %s", exc)
+            return [], {"base": "unknown"}
+        return [cast("TtlockBleStoredKey", key.to_dict()) for key in virtual_keys], {}

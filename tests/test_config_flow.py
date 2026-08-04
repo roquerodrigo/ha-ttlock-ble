@@ -138,6 +138,56 @@ async def test_step_user_duplicate_aborts(
     assert result["reason"] == "already_configured"
 
 
+async def test_key_sync_failure_reshows_the_form(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """A blip after the credentials were accepted must not crash the flow."""
+    with patch("custom_components.ttlock_ble.config_flow.TtlockBleApiClient") as cls:
+        instance = MagicMock()
+        instance.async_login = AsyncMock(return_value=None)
+        instance.async_list_keys = AsyncMock(
+            side_effect=TtlockBleApiClientCommunicationError("down"),
+        )
+        cls.return_value = instance
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=USER_INPUT
+        )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "connection"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_key_sync_failure_after_verification_reshows_the_code_form(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """The same applies to the leg that already consumed a verification code."""
+    with patch("custom_components.ttlock_ble.config_flow.TtlockBleApiClient") as cls:
+        instance = MagicMock()
+        # Only the first login trips 2FA; the one inside the key sync succeeds.
+        instance.async_login = AsyncMock(
+            side_effect=[TtlockBleApiClientVerificationRequiredError("2fa"), None],
+        )
+        instance.async_request_verification_code = AsyncMock(return_value=None)
+        instance.async_validate_new_device_and_login = AsyncMock(return_value=None)
+        instance.async_list_keys = AsyncMock(
+            side_effect=TtlockBleApiClientCommunicationError("down"),
+        )
+        cls.return_value = instance
+        flow = await _start_user_flow(hass)
+        await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=USER_INPUT
+        )
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=CODE_INPUT
+        )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "verify_code"
+    assert result["errors"] == {"base": "connection"}
+
+
 async def test_reauth_rejects_a_different_account(
     hass,
     enable_custom_integrations,
