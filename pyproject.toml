@@ -22,7 +22,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-homeassistant-custom-component==0.13.332",
     "serialx==1.8.2",
-    "ttlock-ble==0.1.8",
+    "ttlock-ble==0.1.10",
 ]
 lint = [
     "ruff==0.16.1",
