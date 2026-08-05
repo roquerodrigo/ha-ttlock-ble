@@ -1,5 +1,69 @@
 # Changelog
 
+## [3.4.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.3.0...v3.4.0) (2026-08-05)
+
+
+### Features
+
+* **lock:** report the locking and unlocking transitional states ([8a91f23](https://github.com/roquerodrigo/ha-ttlock-ble/commit/8a91f2338908fc6886450b299c55dead7bde715f))
+
+
+### Bug Fixes
+
+* **api:** stop classifying every cloud failure as bad credentials ([b311efc](https://github.com/roquerodrigo/ha-ttlock-ble/commit/b311efc8c11aef4e798e92cc3dc5782ca590b72e))
+* **binary-sensor:** author the translation key the entity actually asks for ([38db5d5](https://github.com/roquerodrigo/ha-ttlock-ble/commit/38db5d52d332bf129203d954e3d308e093141984))
+* **config-flow:** keep the unique id in step with a reconfigured MAC ([0a7f8f7](https://github.com/roquerodrigo/ha-ttlock-ble/commit/0a7f8f79f678b1a9b23cfb20f8d3d9b42a261b57))
+* **config-flow:** map key-sync failures to form errors ([9db3069](https://github.com/roquerodrigo/ha-ttlock-ble/commit/9db30693174612ade2661c03d8f38b89e85e19da))
+* **config-flow:** reject credentials for a different account on reauth ([20798f0](https://github.com/roquerodrigo/ha-ttlock-ble/commit/20798f08ecd987652fffd8dd545ba5830dc1bb65))
+* **config-flow:** run the lock-collision check on the cloud path too ([eaf96fb](https://github.com/roquerodrigo/ha-ttlock-ble/commit/eaf96fbf771dcddbcd3669cd967aa2c9ea8400f0))
+* **connection:** bound the operation-log fetch ([343a999](https://github.com/roquerodrigo/ha-ttlock-ble/commit/343a99906a261a4f20c18d32ea81bb9e92be8f97))
+* **connection:** refuse to open a BLE session after stop ([8f28b08](https://github.com/roquerodrigo/ha-ttlock-ble/commit/8f28b08c076c259a26f598d7ff2b707bcf29b71a))
+* **connection:** report the BLE drop as soon as it happens ([7b88c91](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7b88c912f307bb73be1c731a47289770eedaddc8))
+* **coordinator:** seed the operation log per lock, on success ([80efc78](https://github.com/roquerodrigo/ha-ttlock-ble/commit/80efc7834d815ec771ba83fb537a0a6ed95058a6))
+* **diagnostics:** redact the cloud account name from the entry title ([7a71597](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7a71597e8e070446f97ba1ea0c32b867d6365d00))
+* **event:** stop publishing keypad passcodes as event attributes ([a5d46b6](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a5d46b662a17f68e3aa4d692b3a10df4c11eafd3))
+* **init:** register teardown on the entry so failed setup cleans up ([6ddd446](https://github.com/roquerodrigo/ha-ttlock-ble/commit/6ddd446e59769df835fbfd309219481c81962191))
+* **lock:** always clear the transitional state when a command ends ([179dc83](https://github.com/roquerodrigo/ha-ttlock-ble/commit/179dc83bdb10a9b2674bdbb53da761a9bfab436b))
+* **lock:** compare the bolt state by value, not identity ([926c5a4](https://github.com/roquerodrigo/ha-ttlock-ble/commit/926c5a4cf2cfa392925318a783c6bd0dc59cdbb0))
+* **lock:** serialize commands at the entity, not only on the wire ([89ff557](https://github.com/roquerodrigo/ha-ttlock-ble/commit/89ff557fe9206c7c824128136f6a238f965e59f0))
+* **manual-key:** normalise the MAC before the advertisement cross-check ([eccbc73](https://github.com/roquerodrigo/ha-ttlock-ble/commit/eccbc73f3eb69e267df8d50e45f0c3f0685ef35f))
+
+
+### Code Refactoring
+
+* **coordinator:** drop the reachability flag nothing could use ([276e551](https://github.com/roquerodrigo/ha-ttlock-ble/commit/276e551145517b58f5b19096fd76dc156bf671ae))
+* **event:** type the event attributes and hoist the event types ([3314a54](https://github.com/roquerodrigo/ha-ttlock-ble/commit/3314a5484bc2f316d7ac17e78f1e9ced5d920017))
+
+
+### Dependencies
+
+* **ttlock-ble:** bump to 0.1.10 ([b99d77e](https://github.com/roquerodrigo/ha-ttlock-ble/commit/b99d77e700c1be121aca490544f7bdda9ff1a2c6))
+
+
+### Development Dependencies
+
+* **deps-dev:** bump ruff ([3e6ab68](https://github.com/roquerodrigo/ha-ttlock-ble/commit/3e6ab68233d186adcd65c72e54a4357b4e288adb))
+
+
+### Documentation
+
+* **claude:** record the invariants these fixes introduced ([b4fabd4](https://github.com/roquerodrigo/ha-ttlock-ble/commit/b4fabd446b572b81cdb0472359e11fff104e1fa0))
+* **code-style:** sync the style contract with the code it governs ([7f1741a](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7f1741a794752c10a6b58db0003a5ab6416832e7))
+
+
+### Tests
+
+* **lock:** assert the post-command log read, and stop sleeping through it ([96e48c1](https://github.com/roquerodrigo/ha-ttlock-ble/commit/96e48c123472c62507e8668b0576ba5d3f8164aa))
+* **lock:** build the push event through the SDK decoder ([872b945](https://github.com/roquerodrigo/ha-ttlock-ble/commit/872b945d4ffca7f4b81a31b5276ad9c7ddd2d59c))
+
+
+### Miscellaneous Chores
+
+* **deps-dev:** bump ruff to 0.16.0 ([17005ad](https://github.com/roquerodrigo/ha-ttlock-ble/commit/17005ad1c4f9401ee49c150808e89c18e4fc70de))
+* **deps-dev:** bump the python-deps group across 1 directory with 2 updates ([144b809](https://github.com/roquerodrigo/ha-ttlock-ble/commit/144b809d4d662341cec3c0f771d04dc5d82c06e6))
+* move CI to the shared workflows repository ([1ed6573](https://github.com/roquerodrigo/ha-ttlock-ble/commit/1ed6573e8f4caa0455851c7f67ce0e47e665eff1))
+* release on every conventional commit type ([01ca6dc](https://github.com/roquerodrigo/ha-ttlock-ble/commit/01ca6dcd6cad9874fd104908597083a0304a7e20))
+
 ## [3.3.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.2.3...v3.3.0) (2026-07-30)
 
 
