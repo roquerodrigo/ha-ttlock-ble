@@ -9,18 +9,19 @@ package = false
 
 [dependency-groups]
 dev = [
-    "aioesphomeapi==45.0.4",
+    "aioesphomeapi==45.6.1",
     "aiousbwatcher==1.1.2",
     "bleak==3.0.2",
     "bluetooth-adapters==2.4.0",
     "colorlog==6.12.0",
     "dbus-fast==5.0.22",
-    "homeassistant==2026.5.3",
+    "habluetooth==6.26.5",
+    "homeassistant==2026.8.0",
     "pre-commit==4.6.1",
     "pytest==9.0.3",
-    "pytest-asyncio==1.3.0",
+    "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "pytest-homeassistant-custom-component==0.13.332",
+    "pytest-homeassistant-custom-component==0.13.354",
     "serialx==1.8.2",
     "ttlock-ble==0.1.10",
 ]
