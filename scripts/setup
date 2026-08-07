@@ -4,10 +4,4 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-# Auto-use ./.venv if present so callers don't need to `source activate`.
-if [ -d "${PWD}/.venv" ]; then
-    export PATH="${PWD}/.venv/bin:${PATH}"
-    export VIRTUAL_ENV="${PWD}/.venv"
-fi
-
-python3 -m pip install --requirement requirements.txt
+uv sync --group dev --group lint

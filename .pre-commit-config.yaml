@@ -1,12 +1,28 @@
 # Run with: pre-commit install (after scripts/setup)
-# CI mirrors these checks via .github/workflows/lint.yml
+# CI mirrors these checks via .github/workflows/ci.yml
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+  - repo: local
     hooks:
-      - id: ruff-check
-        args: [--fix]
       - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy
+        entry: uv run mypy custom_components/ttlock_ble
+        language: system
+        pass_filenames: false
+        types: [python]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
