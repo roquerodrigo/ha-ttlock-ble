@@ -24,13 +24,16 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 
 ## Entities
 
-Each configured lock produces one HA device with three entities:
+Each configured lock produces one HA device with four entities:
 
 | Entity | Domain | Purpose |
 |---|---|---|
-| `lock.<alias>` | `lock` | Locked/unlocked state, with optimistic updates and a post-command settle window. |
+| `lock.<alias>` | `lock` | Locked/unlocked state, with optimistic updates, `locking`/`unlocking` transitional states and a post-command settle window. |
 | `sensor.<alias>_battery` | `sensor` | Battery percentage (diagnostic). |
-| `event.<alias>_operation` | `event` | Fires on every push from the lock, with decoded `lock_state`, `battery`, `uid`, `record_id`, `timestamp` attributes when present. |
+| `binary_sensor.<alias>_connection` | `binary_sensor` | Live BLE link state (connectivity, diagnostic). |
+| `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
+
+The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
 
 ## Installation
 
@@ -82,7 +85,7 @@ The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silenc
 ## Useful commands
 
 ```bash
-scripts/setup      # install dependencies (requirements.txt)
+scripts/setup      # install dependencies (uv sync, dev + lint groups)
 scripts/develop    # start Home Assistant in debug mode with the integration loaded
 
 # Lint and test directly (config lives in pyproject.toml):
@@ -91,8 +94,6 @@ uv run ruff check .
 uv run mypy custom_components/ttlock_ble
 uv run pytest
 ```
-
-Each `scripts/*` helper auto-detects `./.venv` and prepends it to `PATH` — no `source .venv/bin/activate` needed.
 
 HA runs with config in `config/` and `PYTHONPATH` pointing at the repo root. To reset entity/device IDs during development:
 
@@ -104,22 +105,23 @@ rm config/.storage/core.entity_registry config/.storage/core.device_registry
 
 ```
 custom_components/ttlock_ble/
-├── __init__.py        # async_setup_entry / unload / reload + bluetooth callbacks
+├── __init__.py        # config-entry lifecycle: setup / unload / reload
 ├── advertisement.py   # TtlockBleAdvertisementTracker: state from advertisements
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
+├── binary_sensor.py   # TtlockBleConnectionBinarySensor: live BLE link state
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
 ├── config_flow.py     # menu / cloud / manual / verify_code / reauth / reconfigure
-├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
 ├── const.py           # DOMAIN, LOGGER, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection
-├── data.py            # TypedDicts + TtlockBleData dataclass
+├── data/              # one TypedDict/dataclass per file + type aliases in __init__.py
 ├── diagnostics.py     # redacted credentials/keys
 ├── entity.py          # base CoordinatorEntity with DeviceInfo
-├── event.py           # TtlockBleOperationEvent push surface
+├── event.py           # TtlockBleLogEvent: operation-log records as HA events
 ├── exceptions/        # one file per exception class
 ├── lock.py            # TtlockBleLock: LockEntity backed by the connection
 ├── manifest.json
+├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── options_flow.py    # TtlockBleOptionsFlow: scan_interval, reconnect_interval, permanent_connection
 ├── sensor.py          # TtlockBleBatterySensor backed by polls + pushes
 └── translations/
@@ -137,15 +139,14 @@ Install once per clone (after `scripts/setup`):
 pre-commit install
 ```
 
-This wires ruff + basic file hygiene checks (`.pre-commit-config.yaml`) into every commit, mirroring the CI lint job.
+This wires ruff, mypy and basic file hygiene checks (`.pre-commit-config.yaml`) into every commit, mirroring the CI lint job.
 
 ## CI
 
-- **`lint.yml`** — ruff (check + format) and mypy (Python 3.14)
-- **`tests.yml`** — pytest with the 90 % coverage gate
-- **`validate.yml`** — `hassfest` + HACS validation; push/PR to `main` and a daily cron
+- **`ci.yml`** — lint (ruff check + format, mypy), tests (pytest with the 90 % coverage gate) and validation (`hassfest` + HACS) via the shared reusable workflows
 - **`codeql.yml`** — GitHub CodeQL security scan; push/PR to `main` and a weekly cron
 - **`release.yml`** — release-please opens a release PR on every push to `main` based on conventional commits
+- **`auto-assign.yml`** — assigns the repository owner to new issues and pull requests
 
 ## License
 

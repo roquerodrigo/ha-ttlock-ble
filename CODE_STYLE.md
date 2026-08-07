@@ -33,8 +33,8 @@ Style conventions for the `ha-ttlock-ble` project. Before committing, run
   `TtlockBleCoordinatorData` live in `data/__init__.py`).
 - **Helper functions** may live in the same file as the single class that uses
   them (e.g. `_classify_cloud_error` in `api.py`).
-- **`__init__.py` of the integration package** wires `async_setup_entry`,
-  `async_unload_entry`, `async_reload_entry` and nothing else.
+- **`__init__.py` of the integration package** wires the Home Assistant
+  config-entry lifecycle hooks and nothing else.
 
 ## Entities: encode behaviour directly, no description-callable indirection
 
@@ -50,7 +50,7 @@ should be written:
   - Don't write an `<DOMAIN><Platform>Description` subclass with a
     `value_fn` / `action_fn` field.
   - Do write `<DOMAIN><Name><Platform>` (e.g. `TtlockBleBatterySensor`,
-    `TtlockBleLock`, `TtlockBleOperationEvent`).
+    `TtlockBleLock`, `TtlockBleLogEvent`).
 - The reason: each entity is a discrete contract; mixing them through a
   generic class hides the contract behind indirection and discourages
   per-entity refinement (icons, state attributes, custom logic).
@@ -60,8 +60,8 @@ should be written:
 - Public classes are prefixed with `TtlockBle` (rename to
   `<YourDomain>` when forking).
 - Concrete platform entities end with the entity type:
-  `TtlockBleSensor`, `TtlockBleBinarySensor`,
-  `TtlockBleSwitch`.
+  `TtlockBleBatterySensor`, `TtlockBleConnectionBinarySensor`,
+  `TtlockBleLogEvent`, `TtlockBleLock`.
 - Exception classes end with `Error`: `TtlockBleApiClientError`,
   `…CommunicationError`, `…AuthenticationError`.
 - Private attributes / functions are prefixed with `_`.
@@ -171,8 +171,8 @@ with a one-line comment explaining the deliberate narrowing — see
 - Format: `"Failed to <verb> <object>: <cause>"` where `<cause>` is the
   exception or a short reason. Keep them short and grep-able.
 - Pre-validate inputs before the network call so user-facing errors point at
-  the bad input, not a downstream traceback (`config_flow._validate` rejects
-  malformed credentials before contacting the API).
+  the bad input, not a downstream traceback (`manual_key.async_validate`
+  rejects a malformed key before it is stored on the entry).
 - Custom exceptions get the same hierarchy:
   `TtlockBleApiClientError` (base) → `…CommunicationError` (timeout,
   connection, DNS) and `…AuthenticationError` (401/403). Wrap raw upstream
@@ -215,16 +215,18 @@ with a one-line comment explaining the deliberate narrowing — see
 ## Pre-commit hooks
 
 `pre-commit` is a dev dependency (`pyproject.toml`) and `.pre-commit-config.yaml`
-mirrors the lint commands (ruff format, ruff check). Install once per
-clone:
+mirrors the lint commands (ruff format, ruff check, mypy) through local
+`uv run` hooks, so every commit runs the exact tool versions pinned in
+`pyproject.toml`. Install once per clone:
 
 ```bash
 pre-commit install
 ```
 
-The hook runs the same ruff gates as CI on every commit. Skip it only on
+The hooks run the same gates as CI on every commit. Skip them only on
 emergency `git commit --no-verify` and immediately re-run
-`uv run ruff format --check .` and `uv run ruff check .`.
+`uv run ruff format --check .`, `uv run ruff check .` and
+`uv run mypy custom_components/ttlock_ble`.
 
 ## Conventional commits
 

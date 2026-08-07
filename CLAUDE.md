@@ -64,12 +64,12 @@ coordinator.py   → polls every scan_interval seconds via each connection,
 lock.py          → LockEntity backed by the BLE connection
 sensor.py        → BatterySensor backed by the same poll + push events
 binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
-event.py         → EventEntity that surfaces decoded LockEvent pushes
+event.py         → EventEntity that surfaces decoded LogEntry records
 ```
 
 ### Entry typing
 
-`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs, first_refresh)` dataclass. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 ### Config flow surface
 
