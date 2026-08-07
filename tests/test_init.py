@@ -226,6 +226,134 @@ async def test_reconnect_options_reach_the_connections(
         )
 
 
+async def test_setup_prunes_devices_for_removed_locks(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    """A device whose lock left the entry's keys is removed on setup."""
+    from homeassistant.helpers import device_registry
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    registry = device_registry.async_get(hass)
+    stale_mac = "aa:bb:cc:dd:ee:00"
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, stale_mac)},
+        name="Removed lock",
+    )
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert registry.async_get_device(identifiers={(DOMAIN, stale_mac)}) is None
+    assert (
+        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+        is not None
+    )
+
+
+async def test_remove_config_entry_device_denies_a_configured_lock(
+    hass, setup_integration
+) -> None:
+    """The lock is still in the entry's keys, so the device must stay."""
+    from homeassistant.helpers import device_registry
+
+    from custom_components.ttlock_ble import async_remove_config_entry_device
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    registry = device_registry.async_get(hass)
+    device = registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+    assert device is not None
+    assert not await async_remove_config_entry_device(hass, setup_integration, device)
+
+
+async def test_remove_config_entry_device_allows_a_stale_lock(
+    hass, setup_integration
+) -> None:
+    """A device with no lock in the entry's keys can be deleted from the UI."""
+    from homeassistant.helpers import device_registry
+
+    from custom_components.ttlock_ble import async_remove_config_entry_device
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    registry = device_registry.async_get(hass)
+    device = registry.async_get_or_create(
+        config_entry_id=setup_integration.entry_id,
+        identifiers={(DOMAIN, "aa:bb:cc:dd:ee:00")},
+        name="Removed lock",
+    )
+    assert await async_remove_config_entry_device(hass, setup_integration, device)
+
+
+async def test_reauth_key_refresh_prunes_the_replaced_lock(
+    hass,
+    sample_stored_key,
+    sample_virtual_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    """Reauth replacing the key set drops the devices the cloud stopped listing."""
+    from dataclasses import replace
+
+    from homeassistant.helpers import device_registry
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "pass",
+            "keys": [sample_stored_key],
+        },
+        unique_id="user_example_com",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = device_registry.async_get(hass)
+    assert (
+        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+        is not None
+    )
+
+    replacement_key = replace(
+        sample_virtual_key, keyId=2, lockId=43, lockMac="11:22:33:44:55:66"
+    )
+    mock_cloud.list_keys.return_value = [replacement_key]
+    result = await entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"username": "user@example.com", "password": "new-pass"},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    assert (
+        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")}) is None
+    )
+    assert (
+        registry.async_get_device(identifiers={(DOMAIN, "11:22:33:44:55:66")})
+        is not None
+    )
+
+
 async def test_failed_platform_setup_still_stops_the_connections(
     hass,
     sample_stored_key,

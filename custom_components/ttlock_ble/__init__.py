@@ -7,6 +7,13 @@ from typing import TYPE_CHECKING, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import (
+    async_entries_for_config_entry,
+    format_mac,
+)
+from homeassistant.helpers.device_registry import (
+    async_get as async_get_device_registry,
+)
 
 from ttlock_ble import VirtualKey
 
@@ -18,12 +25,14 @@ from .const import (
     DEFAULT_RECONNECT_INTERVAL_SECONDS,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
+    LOGGER,
 )
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.device_registry import DeviceEntry
 
     from .data import (
         TtlockBleConfigData,
@@ -39,12 +48,60 @@ PLATFORMS: list[Platform] = [
 ]
 
 
+def _configured_macs(config: TtlockBleConfigData) -> set[str]:
+    """Return the formatted MAC of every lock the entry currently holds."""
+    return {format_mac(key["lockMac"]) for key in config["keys"]}
+
+
+def _device_macs(device: DeviceEntry) -> set[str]:
+    """Return the formatted MACs this integration stamped on a device."""
+    return {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
+
+
+@callback
+def _async_prune_stale_devices(
+    hass: HomeAssistant,
+    entry: TtlockBleConfigEntry,
+    config: TtlockBleConfigData,
+) -> None:
+    """
+    Drop registry devices whose lock left the entry's key set.
+
+    Reauth and reconfigure replace `keys` wholesale with whatever the
+    cloud returns, so a lock removed from the account would otherwise
+    linger as a dead device until the user deletes it by hand.
+    """
+    device_registry = async_get_device_registry(hass)
+    configured = _configured_macs(config)
+    for device in async_entries_for_config_entry(device_registry, entry.entry_id):
+        if not _device_macs(device) & configured:
+            LOGGER.info(
+                "Removing device %s: its lock is no longer in the entry's keys",
+                device.name or device.id,
+            )
+            device_registry.async_update_device(
+                device.id,
+                remove_config_entry_id=entry.entry_id,
+            )
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,  # noqa: ARG001
+    entry: TtlockBleConfigEntry,
+    device_entry: DeviceEntry,
+) -> bool:
+    """Allow deleting a device once its lock is gone from the entry's keys."""
+    config = cast("TtlockBleConfigData", entry.data)
+    return not _device_macs(device_entry) & _configured_macs(config)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TtlockBleConfigEntry,
 ) -> bool:
     """Set up TTLock BLE from a config entry."""
     config = cast("TtlockBleConfigData", entry.data)
+    _async_prune_stale_devices(hass, entry, config)
     stored_keys: list[TtlockBleStoredKey] = list(config["keys"])
     virtual_keys = [VirtualKey.from_dict(dict(k)) for k in stored_keys]
 
