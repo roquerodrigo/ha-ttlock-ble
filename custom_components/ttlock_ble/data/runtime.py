@@ -10,12 +10,10 @@ if TYPE_CHECKING:
 
     from homeassistant.core import CALLBACK_TYPE
 
-    from custom_components.ttlock_ble.connection import TtlockBleConnection
-    from custom_components.ttlock_ble.coordinator import (
-        TtlockBleDataUpdateCoordinator,
-    )
     from ttlock_ble import VirtualKey
 
+    from ..connection import TtlockBleConnection
+    from ..coordinator import TtlockBleDataUpdateCoordinator
     from .stored_key import TtlockBleStoredKey
 
 

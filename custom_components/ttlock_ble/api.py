@@ -26,7 +26,6 @@ from .exceptions import (
 
 if TYPE_CHECKING:
     from ttlock_ble import VirtualKey
-    from ttlock_ble.models.cloud_credentials import CloudCredentials
 
 
 class TtlockBleApiClient:
@@ -35,11 +34,6 @@ class TtlockBleApiClient:
     def __init__(self, *, httpx_client: httpx.AsyncClient) -> None:
         """Bind to a Home-Assistant-managed `httpx.AsyncClient`."""
         self._cloud = TTLockCloud(client=httpx_client)
-
-    @property
-    def credentials(self) -> CloudCredentials | None:
-        """Cached cloud credentials after a successful login, else None."""
-        return self._cloud.creds
 
     async def async_login(self, username: str, password: str) -> None:
         """Discover the regional endpoint and log into the TTLock cloud."""

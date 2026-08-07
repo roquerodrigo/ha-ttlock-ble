@@ -165,10 +165,6 @@ async def test_list_keys_httpx_error_becomes_communication(
         await _client(mock_cloud).async_list_keys()
 
 
-def test_credentials_property_returns_cloud_creds(mock_cloud: MagicMock) -> None:
-    assert _client(mock_cloud).credentials is mock_cloud.creds
-
-
 @pytest.mark.parametrize("status", [500, 502, 503, 429, 408])
 def test_classify_maps_transport_failures_to_communication(status: int) -> None:
     """An outage or a rate limit must never read as a wrong password."""

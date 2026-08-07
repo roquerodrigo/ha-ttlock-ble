@@ -74,9 +74,8 @@ async def async_setup_entry(
     )
 
 
-def _classify_record(record_type: int) -> str:
-    """Map a LogOperate record type to an HA event type."""
-    unlock_types = {
+UNLOCK_RECORD_TYPES: frozenset[int] = frozenset(
+    {
         LogOperate.MOBILE_UNLOCK,
         LogOperate.KEYBOARD_PASSWORD_UNLOCK,
         LogOperate.IC_UNLOCK_SUCCEED,
@@ -86,14 +85,20 @@ def _classify_record(record_type: int) -> str:
         LogOperate.WIRELESS_KEY_FOB,
         LogOperate.WIRELESS_KEY_PAD,
         LogOperate.REMOTE_CONTROL_KEY,
-    }
-    lock_types = {
+    },
+)
+
+LOCK_RECORD_TYPES: frozenset[int] = frozenset(
+    {
         LogOperate.OPERATE_BLE_LOCK,
         LogOperate.PASSCODE_LOCK,
         LogOperate.IC_LOCK,
         LogOperate.FR_LOCK,
-    }
-    fail_types = {
+    },
+)
+
+UNLOCK_FAILED_RECORD_TYPES: frozenset[int] = frozenset(
+    {
         LogOperate.ERROR_PASSWORD_UNLOCK,
         LogOperate.FR_UNLOCK_FAILED,
         LogOperate.APP_UNLOCK_FAILED_LOCK_REVERSE,
@@ -102,8 +107,11 @@ def _classify_record(record_type: int) -> str:
         LogOperate.FR_UNLOCK_FAILED_LOCK_REVERSE,
         LogOperate.PASSCODE_EXPIRED,
         LogOperate.PASSCODE_IN_BLACK_LIST,
-    }
-    password_types = {
+    },
+)
+
+PASSWORD_CHANGE_RECORD_TYPES: frozenset[int] = frozenset(
+    {
         LogOperate.KEYBOARD_MODIFY_PASSWORD,
         LogOperate.KEYBOARD_REMOVE_SINGLE_PASSWORD,
         LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS,
@@ -114,14 +122,19 @@ def _classify_record(record_type: int) -> str:
         LogOperate.DELETE_IC_SUCCEED,
         LogOperate.ADD_FR,
         LogOperate.DELETE_FR_SUCCEED,
-    }
-    if record_type in unlock_types:
+    },
+)
+
+
+def _classify_record(record_type: int) -> str:
+    """Map a LogOperate record type to an HA event type."""
+    if record_type in UNLOCK_RECORD_TYPES:
         return "unlock"
-    if record_type in lock_types:
+    if record_type in LOCK_RECORD_TYPES:
         return "lock"
-    if record_type in fail_types:
+    if record_type in UNLOCK_FAILED_RECORD_TYPES:
         return "unlock_failed"
-    if record_type in password_types:
+    if record_type in PASSWORD_CHANGE_RECORD_TYPES:
         return "password_change"
     return "other"
 
