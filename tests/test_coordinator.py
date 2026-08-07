@@ -39,6 +39,15 @@ def _coordinator(hass, connections):
     )
 
 
+async def test_poll_keeps_state_when_log_read_fails(hass) -> None:
+    """The operation log only feeds the event entity; it must not void the state."""
+    conn = _mock_connection(query_return=(0, 80))
+    conn.async_get_operation_log = AsyncMock(side_effect=ValueError("garbled frame"))
+    coordinator = _coordinator(hass, {"AA:BB:CC:DD:EE:FF": conn})
+    data = await coordinator._async_update_data()
+    assert data["AA:BB:CC:DD:EE:FF"] == {"locked": True, "battery_level": 80}
+
+
 async def test_coordinator_exposes_connections(hass) -> None:
     connections = {"AA:BB:CC:DD:EE:FF": _mock_connection()}
     coordinator = _coordinator(hass, connections)

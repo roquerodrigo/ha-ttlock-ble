@@ -122,7 +122,19 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         if result is None:
             return {"locked": None, "battery_level": None}
         raw_state, battery = result
-        await connection.async_get_operation_log()
+        try:
+            await connection.async_get_operation_log()
+        except Exception:  # noqa: BLE001
+            # The log feeds the event entity only. Failing the poll here
+            # would throw away the state and battery already read, and the
+            # entity would keep whatever HA last wrote optimistically —
+            # a confidently wrong value that silently disables any
+            # state-based automation built on it.
+            LOGGER.debug(
+                "Operation log read failed for %s; keeping the state read",
+                connection.key.lockMac,
+                exc_info=True,
+            )
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,

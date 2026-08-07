@@ -446,6 +446,28 @@ async def test_get_operation_log_returns_empty_on_ttlock_error(
     assert await conn.async_get_operation_log() == []
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError(
+            "The length of the provided data is not a multiple of the block length"
+        ),
+        RuntimeError("lock rejected checkUserTime"),
+    ],
+)
+async def test_get_operation_log_returns_empty_on_unwrapped_error(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    error: Exception,
+) -> None:
+    """The SDK's log path raises outside TTLockError; the fetch still returns []."""
+    mock_ttlock_client.get_operation_log = AsyncMock(side_effect=error)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_operation_log() == []
+
+
 async def test_get_operation_log_dispatches_only_new_records(
     hass,
     sample_virtual_key,

@@ -177,7 +177,14 @@ class TtlockBleConnection:
                 entries = await client.get_operation_log(
                     max_entries=MAX_LOG_ENTRIES_PER_FETCH,
                 )
-            except TTLockError as exc:
+            except Exception as exc:  # noqa: BLE001
+                # `TTLockError` alone is not enough: the SDK's log path
+                # reaches `aes_decrypt` unwrapped and raises `ValueError`
+                # on a garbled frame, and `bleak` raises `BleakError` when
+                # the link drops mid-fetch. Letting those out would fail
+                # the whole poll and discard the state read that already
+                # succeeded, leaving the lock entity reporting a stale
+                # value instead of merely losing its history.
                 LOGGER.warning(
                     "get_operation_log failed for %s: %s",
                     self._key.lockMac,
