@@ -1,5 +1,45 @@
 # Changelog
 
+## [3.5.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.4.0...v3.5.0) (2026-08-07)
+
+
+### Features
+
+* **options:** make the reconnect cooldown configurable and add a permanent connection mode ([d5182a3](https://github.com/roquerodrigo/ha-ttlock-ble/commit/d5182a36fd588ad23dd5aa07cdd340336f8b68e0))
+
+
+### Bug Fixes
+
+* keep the lock state when the operation-log read fails ([566f2ab](https://github.com/roquerodrigo/ha-ttlock-ble/commit/566f2ab52fc6d7b6a4a9518ac1bb619502948c16)), closes [#74](https://github.com/roquerodrigo/ha-ttlock-ble/issues/74)
+* remove registry devices for locks that leave the entry's key set ([2e43dea](https://github.com/roquerodrigo/ha-ttlock-ble/commit/2e43dea91481ed0d29df881dfb1bf7ffca6d3110))
+
+
+### Code Refactoring
+
+* drop dead API surface and hoist record-type sets to module level ([c430338](https://github.com/roquerodrigo/ha-ttlock-ble/commit/c4303383e0dc7810c114a8307ad78cac26657f60))
+
+
+### Dependencies
+
+* bump homeassistant to 2026.8.0 with its matching test harness ([e69a570](https://github.com/roquerodrigo/ha-ttlock-ble/commit/e69a5704f9f53e7e2f013ac5751135d40ebe3ace))
+
+
+### Documentation
+
+* align README, CODE_STYLE and CLAUDE.md with the actual codebase ([af29a08](https://github.com/roquerodrigo/ha-ttlock-ble/commit/af29a080cb2473e8538b0a8867457e92fcd1c9dd))
+
+
+### Continuous Integration
+
+* run checks on pull requests targeting any branch ([73bea78](https://github.com/roquerodrigo/ha-ttlock-ble/commit/73bea78dd94a4ee8f6051b468dab7a0888cb5f4b))
+* run code scanning on pull requests targeting any branch ([20e0d71](https://github.com/roquerodrigo/ha-ttlock-ble/commit/20e0d719703f2b5c012749261f32d64024765b4e))
+
+
+### Miscellaneous Chores
+
+* repair scripts/setup and align local tooling with the uv workflow ([a984db9](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a984db92e23dc1f1db6953c02083d66537ce9334))
+* sync uv.lock with the 3.4.0 release ([79b5f07](https://github.com/roquerodrigo/ha-ttlock-ble/commit/79b5f079a01fe8e7b7f5388e824024e550494e61))
+
 ## [3.4.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.3.0...v3.4.0) (2026-08-05)
 
 
