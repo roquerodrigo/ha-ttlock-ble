@@ -9,3 +9,5 @@ class TtlockBleOptionsData(TypedDict, total=False):
     """Shape of the options writable by the options flow."""
 
     scan_interval: NotRequired[int]
+    reconnect_interval: NotRequired[int]
+    permanent_connection: NotRequired[bool]

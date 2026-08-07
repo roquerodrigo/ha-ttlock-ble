@@ -101,7 +101,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 ### Options flow
 
-`options_flow.py` exposes `scan_interval` (seconds; min 60, default 3600). Changing it triggers `async_reload_entry`, which re-instantiates the coordinator with the new `update_interval`.
+`options_flow.py` exposes `scan_interval` (seconds; min 60, default 3600), `reconnect_interval` (seconds; min 10, default 300) and `permanent_connection` (bool; default off — reconnect immediately after every drop, overriding `reconnect_interval`). Changing any of them triggers `async_reload_entry`, which re-instantiates the coordinator with the new `update_interval` and the connections with the new reconnect cooldown.
 
 ### API client
 
@@ -121,7 +121,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 - A long-lived `TTLockClient` (the SDK).
 - An `asyncio.Lock` serializing query/lock/unlock commands.
 - A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
-- A post-drop cooldown: after any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` before reconnecting — no immediate retry. **The cooldown paces that loop only.** It used to also veto `async_query_state`, and since the lock drops every idle session within seconds the loop re-armed it constantly, so the configured `scan_interval` never actually ran a poll (issue #42). Reads are rate-limited by their own callers instead.
+- A post-drop cooldown: after any disconnect, sleeps the `reconnect_cooldown_seconds` the constructor received (from the `reconnect_interval` option; `0` when `permanent_connection` is on) before reconnecting — no immediate retry unless configured so. **The cooldown paces that loop only.** It used to also veto `async_query_state`, and since the lock drops every idle session within seconds the loop re-armed it constantly, so the configured `scan_interval` never actually ran a poll (issue #42). Reads are rate-limited by their own callers instead.
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe. The BLE drop is announced from bleak's own callback, not from the teardown that follows the cooldown, so the connectivity sensor does not claim a live link for five minutes after the link died.
 - Backlog seeding: the first operation-log fetch that actually reaches the lock only fills `_seen_records` and dispatches nothing. The lock returns everything unsynced since its last cursor sync, and replaying that history as live events would fire automations for unlocks from days ago. Tying it to a *successful* fetch matters — a lock out of range at startup must not spend its seeding pass on a poll that read nothing.
 - A refusal to reconnect after `async_stop`: a late caller would otherwise take the lock's single central slot with no maintain loop left to release it.

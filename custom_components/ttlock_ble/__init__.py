@@ -12,7 +12,13 @@ from ttlock_ble import VirtualKey
 
 from .advertisement import TtlockBleAdvertisementTracker
 from .connection import TtlockBleConnection
-from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
+from .const import (
+    CONF_PERMANENT_CONNECTION,
+    CONF_RECONNECT_INTERVAL,
+    DEFAULT_RECONNECT_INTERVAL_SECONDS,
+    DEFAULT_SCAN_INTERVAL_SECONDS,
+    DOMAIN,
+)
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData
 
@@ -42,8 +48,24 @@ async def async_setup_entry(
     stored_keys: list[TtlockBleStoredKey] = list(config["keys"])
     virtual_keys = [VirtualKey.from_dict(dict(k)) for k in stored_keys]
 
+    permanent_connection = bool(entry.options.get(CONF_PERMANENT_CONNECTION, False))
+    reconnect_cooldown_seconds: float = (
+        0.0
+        if permanent_connection
+        else float(
+            entry.options.get(
+                CONF_RECONNECT_INTERVAL,
+                DEFAULT_RECONNECT_INTERVAL_SECONDS,
+            ),
+        )
+    )
     connections: dict[str, TtlockBleConnection] = {
-        key.lockMac: TtlockBleConnection(hass, key) for key in virtual_keys
+        key.lockMac: TtlockBleConnection(
+            hass,
+            key,
+            reconnect_cooldown_seconds=reconnect_cooldown_seconds,
+        )
+        for key in virtual_keys
     }
     for connection in connections.values():
         await connection.async_start()

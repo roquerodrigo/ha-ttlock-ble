@@ -23,7 +23,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from ttlock_ble import TTLockClient, TTLockError
 
-from .const import DOMAIN, LOGGER
+from .const import DEFAULT_RECONNECT_INTERVAL_SECONDS, DOMAIN, LOGGER
 
 if TYPE_CHECKING:
     from bleak import BleakClient
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
 RECONNECT_INITIAL_BACKOFF = 1.0
 RECONNECT_MAX_BACKOFF = 300.0
-RECONNECT_COOLDOWN_SECONDS = 300.0
 
 # The lock answers the operation log one record per BLE frame, each with
 # its own timeout, and the SDK holds its command lock for the whole
@@ -63,10 +62,22 @@ def connection_signal(mac: str) -> str:
 class TtlockBleConnection:
     """Maintain a long-lived BLE session with one TTLock lock."""
 
-    def __init__(self, hass: HomeAssistant, key: VirtualKey) -> None:
-        """Bind to the HA instance and the credentials for a single lock."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        key: VirtualKey,
+        reconnect_cooldown_seconds: float = DEFAULT_RECONNECT_INTERVAL_SECONDS,
+    ) -> None:
+        """
+        Bind to the HA instance and the credentials for a single lock.
+
+        `reconnect_cooldown_seconds` paces the maintain loop after a BLE
+        drop; `0` means reconnect immediately, keeping the session
+        permanently open at the cost of the lock's battery.
+        """
         self._hass = hass
         self._key = key
+        self._reconnect_cooldown_seconds = reconnect_cooldown_seconds
         self._client: TTLockClient | None = None
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
@@ -331,12 +342,14 @@ class TtlockBleConnection:
         """
         Background loop that opens one BLE session and cools down on drop.
 
-        After any disconnect, sleeps `RECONNECT_COOLDOWN_SECONDS` before
-        reconnecting. No immediate retry — locks that drop us aggressively
-        (TTLock's idle-sleep) would otherwise produce a reconnect storm
-        that drains the lock's battery. Connect failures (device not yet
-        advertising) use a separate exponential backoff so first-boot
-        scans don't wait the full cooldown.
+        After any disconnect, sleeps `_reconnect_cooldown_seconds` before
+        reconnecting. No immediate retry by default — locks that drop us
+        aggressively (TTLock's idle-sleep) would otherwise produce a
+        reconnect storm that drains the lock's battery. A cooldown of `0`
+        opts into exactly that storm: the permanent-connection option
+        trades battery for an always-open session. Connect failures
+        (device not yet advertising) use a separate exponential backoff
+        so first-boot scans don't wait the full cooldown.
 
         The cooldown paces this loop only. State stays fresh meanwhile
         through the lock's advertisements, which cost no session at all.
@@ -352,7 +365,7 @@ class TtlockBleConnection:
                     continue
                 backoff = RECONNECT_INITIAL_BACKOFF
                 await self._disconnected.wait()
-                await asyncio.sleep(RECONNECT_COOLDOWN_SECONDS)
+                await asyncio.sleep(self._reconnect_cooldown_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

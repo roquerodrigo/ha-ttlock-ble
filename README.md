@@ -65,6 +65,8 @@ The Bluetooth radio HA already manages (USB dongle, built-in adapter, or proxy) 
 Settings → Devices & Services → TTLock BLE → **Configure** lets you tune:
 
 - `scan_interval` (default 3600 s, minimum 60 s) — how often the coordinator opens a BLE session to read state. Every advertisement received postpones the next poll, so a lock in range is rarely polled at all; lowering this only adds connections (and battery drain) for a lock that has gone quiet.
+- `reconnect_interval` (default 300 s, minimum 10 s) — how long the connection layer waits after the lock drops the BLE session before reconnecting. The lock closes every idle session within seconds, so this is effectively how often a session is reopened to listen for push events.
+- `permanent_connection` (default off) — reconnect immediately after every drop, keeping the session open as continuously as the lock allows. Overrides `reconnect_interval` and increases the lock's battery drain; push events (keypad, auto-lock) arrive in real time in exchange.
 
 To edit credentials without removing and re-adding, use the integration's three-dot menu → **Reconfigure**.
 
@@ -73,7 +75,7 @@ To edit credentials without removing and re-adding, use the integration's three-
 The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silence and it drops). The integration:
 
 1. Reads the bolt position and battery level straight out of the lock's BLE advertisements. This costs no connection at all and is the only channel that reports an operation performed while Home Assistant is not connected — an auto-lock, the official app, a keypad code.
-2. Keeps a persistent BLE session via `connection.py`, reconnecting on every drop signalled by bleak, and waiting out a cooldown before doing so.
+2. Keeps a persistent BLE session via `connection.py`, reconnecting on every drop signalled by bleak, and waiting out the configured `reconnect_interval` before doing so — or none at all with `permanent_connection`.
 3. After a user-initiated `lock`/`unlock`, the SDK keeps the link alive for 25 s so push events (the lock's reports of keypad operations, auto-locks, etc.) reach Home Assistant in real time.
 4. Each push event carries the decoded `lock_state` and `battery` when the firmware emits a heartbeat-style payload, letting the entities update without a follow-up query.
 
@@ -118,7 +120,7 @@ custom_components/ttlock_ble/
 ├── exceptions/        # one file per exception class
 ├── lock.py            # TtlockBleLock: LockEntity backed by the connection
 ├── manifest.json
-├── options_flow.py    # TtlockBleOptionsFlow: scan_interval
+├── options_flow.py    # TtlockBleOptionsFlow: scan_interval, reconnect_interval, permanent_connection
 ├── sensor.py          # TtlockBleBatterySensor backed by polls + pushes
 └── translations/
     ├── en.json

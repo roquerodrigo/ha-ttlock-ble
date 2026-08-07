@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 
 
@@ -175,6 +176,54 @@ async def test_scan_interval_picks_up_options(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data.coordinator.update_interval == timedelta(seconds=120)
+
+
+@pytest.mark.parametrize(
+    ("options", "expected_cooldown"),
+    [
+        ({}, 300.0),
+        ({"reconnect_interval": 120}, 120.0),
+        ({"reconnect_interval": 120, "permanent_connection": True}, 0.0),
+    ],
+)
+async def test_reconnect_options_reach_the_connections(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    options,
+    expected_cooldown,
+) -> None:
+    """The configured cooldown is handed to every connection; permanent wins."""
+    from unittest.mock import ANY, AsyncMock, MagicMock, patch
+
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    instance = MagicMock(name="TtlockBleConnection")
+    instance.async_start = AsyncMock(return_value=None)
+    instance.async_stop = AsyncMock(return_value=None)
+    instance.async_query_state = AsyncMock(return_value=(0, 80))
+    instance.async_get_operation_log = AsyncMock(return_value=[])
+    instance.is_connected = True
+    with patch("custom_components.ttlock_ble.TtlockBleConnection") as connection_class:
+        connection_class.return_value = instance
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+            options=options,
+            unique_id="u",
+        )
+        entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        connection_class.assert_called_once_with(
+            hass,
+            ANY,
+            reconnect_cooldown_seconds=expected_cooldown,
+        )
 
 
 async def test_failed_platform_setup_still_stops_the_connections(
