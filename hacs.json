@@ -1,5 +1,7 @@
 {
     "name": "TTLock BLE",
+    "zip_release": true,
+    "filename": "ttlock_ble.zip",
     "homeassistant": "2026.5.1",
     "hacs": "2.0.5"
 }

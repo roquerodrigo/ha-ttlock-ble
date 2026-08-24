@@ -23,3 +23,13 @@ jobs:
     uses: roquerodrigo/workflows/.github/workflows/release-please.yml@main
     secrets:
       release-token: ${{ secrets.RELEASE_PLEASE_PAT }}
+
+  publish:
+    needs: release
+    if: needs.release.outputs.release-created == 'true'
+    permissions:
+      contents: write
+    uses: roquerodrigo/workflows/.github/workflows/publish-hacs-zip.yml@main
+    with:
+      domain: ttlock_ble
+      ref: ${{ needs.release.outputs.tag-name }}
