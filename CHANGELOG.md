@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.6.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.5.0...v3.6.0) (2026-08-24)
+
+
+### Features
+
+* **hacs:** ship the install zip with every release ([9802922](https://github.com/roquerodrigo/ha-ttlock-ble/commit/9802922a5f79e7f3867b23c372482c48eb9eebac))
+
+
+### Development Dependencies
+
+* **deps-dev:** bump the python-deps group across 1 directory with 5 updates ([20d4149](https://github.com/roquerodrigo/ha-ttlock-ble/commit/20d41494f30afcf9656a8d769be005bcf58afa00))
+
+
+### Documentation
+
+* normalize the README header layout ([698bb46](https://github.com/roquerodrigo/ha-ttlock-ble/commit/698bb4680620a3ae9a4d33e4f14abf47a59f0e87))
+
 ## [3.5.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.4.0...v3.5.0) (2026-08-07)
 
 
