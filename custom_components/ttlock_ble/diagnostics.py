@@ -94,7 +94,7 @@ def _summarize_advertisement(
     service_info = async_last_service_info(hass, mac, connectable=False)
     if service_info is None:
         return None
-    decoded: dict[str, str | int | bool] | None = None
+    decoded: dict[str, str | int | bool | None] | None = None
     for company_id, payload in service_info.manufacturer_data.items():
         advertisement = LockAdvertisement.from_manufacturer_data(company_id, payload)
         if advertisement is not None:
@@ -102,9 +102,14 @@ def _summarize_advertisement(
                 "protocol_type": advertisement.protocol_type,
                 "protocol_version": advertisement.protocol_version,
                 "scene": advertisement.scene,
-                "lock_state": advertisement.lock_state.name,
+                "lock_state": (
+                    None
+                    if advertisement.lock_state is None
+                    else advertisement.lock_state.name
+                ),
                 "has_new_records": advertisement.has_new_records,
                 "is_setting_mode": advertisement.is_setting_mode,
+                "is_dormant": advertisement.is_dormant,
                 "battery": advertisement.battery,
                 "lock_mac": advertisement.lock_mac,
             }

@@ -43,6 +43,11 @@ class TtlockBleAdvertisementTracker:
     An advertisement that decodes into a state also postpones the next
     poll: `async_set_updated_data` reschedules the coordinator, so a lock
     that keeps advertising is never connected to just to be read.
+
+    A dormant lock advertises without a usable bolt position, so those
+    frames only carry battery. While no state is known at all they still
+    fall through to the bootstrap poll below, same as a payload that does
+    not decode.
     """
 
     def __init__(
@@ -78,7 +83,8 @@ class TtlockBleAdvertisementTracker:
         advertisement = self._decode(mac, service_info)
         if advertisement is not None:
             self._coordinator.async_apply_advertisement(mac, advertisement)
-            return
+            if advertisement.lock_state is not None:
+                return
         if self._coordinator.async_has_state(mac):
             return
         LOGGER.debug(

@@ -101,3 +101,32 @@ async def test_undecodable_advertisement_does_not_poll_once_state_is_known(
     instance._async_on_advertisement(MAC, service_info({0x004C: b"\x02\x15"}), None)
     await hass.async_block_till_done()
     coordinator.async_request_refresh.assert_not_awaited()
+
+
+async def test_dormant_advertisement_still_reaches_the_coordinator(tracker) -> None:
+    """Battery stays usable while the lock is asleep, even without a bolt position."""
+    instance, coordinator = tracker
+    instance._async_on_advertisement(MAC, service_info(manufacturer_data(0x10)), None)
+    _mac, advertisement = coordinator.async_apply_advertisement.call_args.args
+    assert advertisement.is_dormant is True
+    assert advertisement.lock_state is None
+    assert advertisement.battery == 77
+
+
+async def test_dormant_advertisement_falls_back_to_a_poll(tracker, hass) -> None:
+    """A frame with no bolt position bootstraps the same way an undecodable one does."""
+    instance, coordinator = tracker
+    instance._async_on_advertisement(MAC, service_info(manufacturer_data(0x10)), None)
+    await hass.async_block_till_done()
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_dormant_advertisement_does_not_poll_once_state_is_known(
+    tracker,
+    hass,
+) -> None:
+    instance, coordinator = tracker
+    coordinator.async_has_state = MagicMock(return_value=True)
+    instance._async_on_advertisement(MAC, service_info(manufacturer_data(0x10)), None)
+    await hass.async_block_till_done()
+    coordinator.async_request_refresh.assert_not_awaited()

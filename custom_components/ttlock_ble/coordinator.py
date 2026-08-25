@@ -84,15 +84,34 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
 
         Also reschedules the next poll: a lock that keeps advertising
         reports itself for free, so there is nothing to connect for.
+
+        A dormant advertisement carries no bolt position — the firmware
+        clears that bit along with the radio, so the payload is
+        indistinguishable from a locked one — and only its battery is
+        adopted, leaving whatever state was last known in place. The
+        poll is still rescheduled: a dormant lock refuses connections,
+        so there is nothing a round trip could add.
         """
+        state_name = (
+            "UNKNOWN"
+            if advertisement.lock_state is None
+            else advertisement.lock_state.name
+        )
         LOGGER.debug(
-            "Advertised state for %s (lock_state=%s battery=%d)",
+            "Advertised state for %s (lock_state=%s battery=%d dormant=%s)",
             mac,
-            advertisement.lock_state.name,
+            state_name,
             advertisement.battery,
+            advertisement.is_dormant,
+        )
+        previous = (self.data or {}).get(mac) or {}
+        locked = (
+            previous.get("locked")
+            if advertisement.lock_state is None
+            else advertisement.lock_state is LockState.LOCKED
         )
         snapshot: TtlockBleLockState = {
-            "locked": advertisement.lock_state is LockState.LOCKED,
+            "locked": locked,
             "battery_level": advertisement.battery,
         }
         self.async_set_updated_data({**(self.data or {}), mac: snapshot})

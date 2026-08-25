@@ -97,16 +97,21 @@ async def test_coordinator_polls_every_connection_once(
         conn.async_query_state.assert_awaited_once()
 
 
-def _advertisement(*, unlocked: bool, battery: int = 66):
+def _advertisement(*, unlocked: bool, battery: int = 66, dormant: bool = False):
     from ttlock_ble import LockAdvertisement, LockState
 
+    if dormant:
+        lock_state = None
+    else:
+        lock_state = LockState.UNLOCKED if unlocked else LockState.LOCKED
     return LockAdvertisement(
         protocol_type=5,
         protocol_version=3,
         scene=2,
-        lock_state=LockState.UNLOCKED if unlocked else LockState.LOCKED,
+        lock_state=lock_state,
         has_new_records=False,
         is_setting_mode=False,
+        is_dormant=dormant,
         battery=battery,
         lock_mac="AA:BB:CC:DD:EE:FF",
     )
@@ -136,6 +141,34 @@ async def test_apply_advertisement_keeps_the_other_locks(hass) -> None:
     )
     assert coordinator.data["OTHER"] == {"locked": None}
     assert coordinator.data["AA:BB:CC:DD:EE:FF"]["locked"] is True
+
+
+async def test_dormant_advertisement_keeps_the_last_known_state(hass) -> None:
+    """The dormancy bit clears the bolt bit with the radio, not with the bolt."""
+    coordinator = _coordinator(hass, {})
+    coordinator.async_apply_advertisement(
+        "AA:BB:CC:DD:EE:FF",
+        _advertisement(unlocked=True, battery=66),
+    )
+    coordinator.async_apply_advertisement(
+        "AA:BB:CC:DD:EE:FF",
+        _advertisement(unlocked=False, battery=64, dormant=True),
+    )
+    state = coordinator.data["AA:BB:CC:DD:EE:FF"]
+    assert state["locked"] is False
+    assert state["battery_level"] == 64
+
+
+async def test_dormant_advertisement_reports_no_state_when_none_is_known(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    coordinator.async_apply_advertisement(
+        "AA:BB:CC:DD:EE:FF",
+        _advertisement(unlocked=False, dormant=True),
+    )
+    state = coordinator.data["AA:BB:CC:DD:EE:FF"]
+    assert state["locked"] is None
+    assert state["battery_level"] == 66
+    assert coordinator.async_has_state("AA:BB:CC:DD:EE:FF") is False
 
 
 async def test_has_state_is_false_until_a_lock_state_is_known(hass) -> None:

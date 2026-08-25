@@ -14,9 +14,13 @@ class TtlockBleDiagnosticsAdvertisement(TypedDict):
     diagnosable: `decoded` is `None` whenever the payload does not match
     the layout this integration knows, and the raw bytes are then the
     only way to tell which layout the firmware actually uses.
+
+    Inside `decoded`, `lock_state` is `None` when the lock was dormant:
+    the frame decodes, but its bolt bit is cleared by the radio going
+    down rather than by the bolt moving.
     """
 
     source: str
     rssi: int
     manufacturer_data: dict[str, str]
-    decoded: dict[str, str | int | bool] | None
+    decoded: dict[str, str | int | bool | None] | None
