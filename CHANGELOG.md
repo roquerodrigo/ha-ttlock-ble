@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.6.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.6.0...v3.6.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **advertisement:** keep the known state when the lock is dormant ([e9163c0](https://github.com/roquerodrigo/ha-ttlock-ble/commit/e9163c0b9a6f579fbef16ae62e1c979b5b14bd00))
+
+
+### Dependencies
+
+* bump ttlock-ble to 0.2.0 ([06c3c14](https://github.com/roquerodrigo/ha-ttlock-ble/commit/06c3c1425a7d3e113d49cefa2955bf6b81663396))
+
 ## [3.6.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.5.0...v3.6.0) (2026-08-24)
 
 
