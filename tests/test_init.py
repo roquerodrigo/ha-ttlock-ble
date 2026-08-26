@@ -223,6 +223,7 @@ async def test_reconnect_options_reach_the_connections(
             hass,
             ANY,
             reconnect_cooldown_seconds=expected_cooldown,
+            log_cursor=ANY,
         )
 
 

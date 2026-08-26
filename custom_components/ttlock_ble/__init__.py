@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL, Platform
@@ -28,7 +29,8 @@ from .const import (
     LOGGER,
 )
 from .coordinator import TtlockBleDataUpdateCoordinator
-from .data import TtlockBleData
+from .data import TtlockBleData, TtlockBleLogCursor
+from .record_store import TtlockBleRecordStore
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -116,11 +118,18 @@ async def async_setup_entry(
             ),
         )
     )
+    record_store = TtlockBleRecordStore(hass)
+    await record_store.async_load()
     connections: dict[str, TtlockBleConnection] = {
         key.lockMac: TtlockBleConnection(
             hass,
             key,
             reconnect_cooldown_seconds=reconnect_cooldown_seconds,
+            log_cursor=TtlockBleLogCursor(
+                records=record_store.seen(key.lockMac),
+                seeded=record_store.is_seeded(key.lockMac),
+                on_move=partial(record_store.async_remember, key.lockMac),
+            ),
         )
         for key in virtual_keys
     }

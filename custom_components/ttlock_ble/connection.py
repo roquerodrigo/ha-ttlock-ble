@@ -24,6 +24,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from ttlock_ble import TTLockClient, TTLockError
 
 from .const import DEFAULT_RECONNECT_INTERVAL_SECONDS, DOMAIN, LOGGER
+from .data import TtlockBleLogCursor
 
 if TYPE_CHECKING:
     from bleak import BleakClient
@@ -67,6 +68,7 @@ class TtlockBleConnection:
         hass: HomeAssistant,
         key: VirtualKey,
         reconnect_cooldown_seconds: float = DEFAULT_RECONNECT_INTERVAL_SECONDS,
+        log_cursor: TtlockBleLogCursor | None = None,
     ) -> None:
         """
         Bind to the HA instance and the credentials for a single lock.
@@ -74,6 +76,10 @@ class TtlockBleConnection:
         `reconnect_cooldown_seconds` paces the maintain loop after a BLE
         drop; `0` means reconnect immediately, keeping the session
         permanently open at the cost of the lock's battery.
+
+        `log_cursor` restores where the operation log was last read, so
+        the backlog pass below is not repeated after a restart and new
+        records are dispatched straight away.
         """
         self._hass = hass
         self._key = key
@@ -83,8 +89,10 @@ class TtlockBleConnection:
         self._task: asyncio.Task[None] | None = None
         self._closing = False
         self._disconnected = asyncio.Event()
-        self._seen_records: set[int] = set()
-        self._log_seeded = False
+        cursor = log_cursor or TtlockBleLogCursor()
+        self._seen_records: set[int] = set(cursor.records)
+        self._log_seeded = cursor.seeded
+        self._on_records_seen = cursor.on_move
         self._broadcast_connected = False
 
     @property
@@ -156,17 +164,21 @@ class TtlockBleConnection:
         """
         Fetch operation records from the lock and dispatch the new ones.
 
-        The first fetch that actually reaches the lock only seeds
-        `_seen_records` and returns nothing. The lock hands back
-        everything unsynced since its last cursor sync, and that set is
-        history — replaying it through the event entity would fire
-        automations for unlocks that happened days ago. `_seen_records`
-        lives in memory, so the seeding pass runs once per HA start,
-        which is exactly when the backlog would otherwise arrive.
+        On a lock with no restored cursor, the first fetch that actually
+        reaches it only seeds `_seen_records` and returns nothing. The
+        lock hands back everything unsynced since its last cursor sync,
+        and that set is history — replaying it through the event entity
+        would fire automations for unlocks that happened days ago.
+
+        That pass runs once per lock, not once per Home Assistant start:
+        the cursor is persisted, so a restart resumes where the previous
+        run stopped. Tying it to the start instead is what used to make
+        a restart swallow whatever happened at the door just after it,
+        which is neither history nor something to replay.
 
         Seeding is tied to a successful fetch, not to an attempt: a lock
-        out of range at startup gets its seeding pass whenever it first
-        answers.
+        out of range on first setup gets its seeding pass whenever it
+        first answers.
         """
         async with self._lock:
             client = await self._async_ensure_connected_locked()
@@ -202,8 +214,11 @@ class TtlockBleConnection:
             if entry.record_number not in self._seen_records:
                 self._seen_records.add(entry.record_number)
                 new_entries.append(entry)
-        if not self._log_seeded:
-            self._log_seeded = True
+        seeding = not self._log_seeded
+        self._log_seeded = True
+        if (new_entries or seeding) and self._on_records_seen is not None:
+            self._on_records_seen(self._seen_records)
+        if seeding:
             LOGGER.debug(
                 "Lock %s: seeded %d existing log records, none dispatched",
                 self._key.lockMac,

@@ -14,6 +14,7 @@ from custom_components.ttlock_ble.connection import (
     event_signal,
     log_signal,
 )
+from custom_components.ttlock_ble.data import TtlockBleLogCursor
 
 
 def _log_entry(record_number: int) -> SimpleNamespace:
@@ -672,3 +673,93 @@ async def test_run_command_lets_cancellation_through(
     conn = TtlockBleConnection(hass, sample_virtual_key)
     with pytest.raises(asyncio.CancelledError):
         await conn.async_lock()
+
+
+async def test_restored_cursor_dispatches_without_a_seeding_pass(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A restart resumes where the previous run stopped, so nothing is swallowed."""
+    received: list[object] = []
+    async_dispatcher_connect(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    conn = TtlockBleConnection(
+        hass,
+        sample_virtual_key,
+        log_cursor=TtlockBleLogCursor(records={1, 2}, seeded=True),
+    )
+
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        return_value=[_log_entry(1), _log_entry(2), _log_entry(3)],
+    )
+    new_entries = await conn.async_get_operation_log()
+    await hass.async_block_till_done()
+    assert [e.record_number for e in new_entries] == [3]
+    assert [e.record_number for e in received] == [3]
+
+
+async def test_an_empty_restored_cursor_still_seeds(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A lock seen for the first time has a backlog that is history, not events."""
+    conn = TtlockBleConnection(
+        hass, sample_virtual_key, log_cursor=TtlockBleLogCursor()
+    )
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        return_value=[_log_entry(1), _log_entry(2)],
+    )
+    assert await conn.async_get_operation_log() == []
+
+
+async def test_the_cursor_is_reported_as_it_moves(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    remembered: list[set[int]] = []
+    conn = TtlockBleConnection(
+        hass,
+        sample_virtual_key,
+        log_cursor=TtlockBleLogCursor(
+            records={1},
+            seeded=True,
+            on_move=lambda seen: remembered.append(set(seen)),
+        ),
+    )
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        return_value=[_log_entry(1), _log_entry(2)],
+    )
+    await conn.async_get_operation_log()
+    assert remembered == [{1, 2}]
+
+
+async def test_the_cursor_is_not_reported_when_nothing_is_new(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    remembered: list[set[int]] = []
+    conn = TtlockBleConnection(
+        hass,
+        sample_virtual_key,
+        log_cursor=TtlockBleLogCursor(
+            records={1, 2},
+            seeded=True,
+            on_move=lambda seen: remembered.append(set(seen)),
+        ),
+    )
+    mock_ttlock_client.get_operation_log = AsyncMock(
+        return_value=[_log_entry(1), _log_entry(2)],
+    )
+    await conn.async_get_operation_log()
+    assert remembered == []
