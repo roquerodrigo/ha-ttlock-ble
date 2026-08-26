@@ -40,12 +40,12 @@ class TtlockBleAdvertisementTracker:
     once the lock has dropped the connection it pushes events on, which
     it does within seconds of going idle.
 
-    Nothing here opens a session, and nothing falls back to one. A
-    dormant lock advertises without a usable bolt position, so those
+    A dormant lock advertises without a usable bolt position, so those
     frames carry only battery and the entity keeps reporting whatever
-    was last known — `unknown`, if the lock has not been awake since
-    Home Assistant started. That is the honest answer: the bolt position
-    is not something anyone knows until the lock says so.
+    was last known. While that is nothing at all — the lock has not been
+    awake since Home Assistant started — the coordinator is told the
+    lock was heard, and reads the position over BLE instead. Being heard
+    is what makes that worth attempting: it means the lock is in range.
     """
 
     def __init__(
@@ -82,6 +82,7 @@ class TtlockBleAdvertisementTracker:
         if advertisement is not None:
             self._coordinator.async_apply_advertisement(mac, advertisement)
             return
+        self._coordinator.async_note_lock_seen(mac)
         LOGGER.debug(
             "No state in the advertisement for %s (%s)",
             mac,

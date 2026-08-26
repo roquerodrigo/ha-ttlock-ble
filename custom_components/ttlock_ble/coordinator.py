@@ -50,6 +50,11 @@ LOCK_STATE_UNLOCKED = 1
 # busy for as long as the records stay unread.
 LOG_RETRY_COOLDOWN_SECONDS = 300.0
 
+# How long to leave a lock alone between attempts to read a bolt position
+# nothing has reported yet. Long enough that a lock which keeps refusing
+# is not connected to on every advertisement it sends.
+STATE_PROBE_COOLDOWN_SECONDS = 300.0
+
 
 class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinatorData"]):
     """Publish lock state, from advertisements and from on-demand reads."""
@@ -76,6 +81,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
+        self._state_probes: dict[str, CALLBACK_TYPE] = {}
 
     @property
     def connections(self) -> dict[str, TtlockBleConnection]:
@@ -132,6 +138,53 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         }
         self.async_set_updated_data({**(self.data or {}), mac: snapshot})
         self._async_sync_operation_log(mac, advertisement)
+        self.async_note_lock_seen(mac)
+
+    @callback
+    def async_note_lock_seen(self, mac: str) -> None:
+        """
+        Read the bolt position over BLE while nothing has reported one.
+
+        An advertisement carries the bolt position only while the lock is
+        awake; a dormant one clears that bit along with the radio. A lock
+        that has not been awake since Home Assistant started therefore
+        has no position anyone can state, and nothing else will produce
+        one until someone touches the door.
+
+        Being heard at all is the useful signal here: it means the lock
+        is in range, which is the one moment a connect is worth trying.
+        The attempt is rate-limited because it is worth trying, not worth
+        repeating — a dormant lock takes several connects to answer, and
+        this must not turn every advertisement into one.
+        """
+        if self.async_has_state(mac):
+            self._async_cancel_state_probe(mac)
+            return
+        if mac not in self._connections or mac in self._state_probes:
+            return
+        self._state_probes[mac] = async_call_later(
+            self.hass,
+            STATE_PROBE_COOLDOWN_SECONDS,
+            partial(self._async_clear_state_probe, mac),
+        )
+        LOGGER.debug("No bolt position known for %s, reading it over BLE", mac)
+        self.config_entry.async_create_task(
+            self.hass,
+            self.async_request_refresh(),
+            name=f"{DOMAIN}.state_probe.{mac}",
+        )
+
+    @callback
+    def _async_clear_state_probe(self, mac: str, _now: datetime) -> None:
+        """Let the next advertisement try again."""
+        self._state_probes.pop(mac, None)
+
+    @callback
+    def _async_cancel_state_probe(self, mac: str) -> None:
+        """Drop the rate limit once the position is known."""
+        cancel = self._state_probes.pop(mac, None)
+        if cancel is not None:
+            cancel()
 
     @callback
     def _async_sync_operation_log(

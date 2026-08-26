@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -294,10 +294,11 @@ async def test_dormant_advertisement_still_reads_the_log(hass) -> None:
     """Anything done at the door is recorded, then the lock goes back to sleep."""
     conn = _mock_connection()
     coordinator = _log_coordinator(hass, conn)
-    coordinator.async_apply_advertisement(
-        MAC, _advertisement(unlocked=False, dormant=True, records=True)
-    )
-    await hass.async_block_till_done()
+    with patch.object(coordinator, "async_request_refresh"):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True, records=True)
+        )
+        await hass.async_block_till_done()
     conn.async_get_operation_log.assert_awaited_once()
 
 
@@ -370,3 +371,103 @@ async def test_the_retry_stops_once_the_flag_clears(hass) -> None:
     )
     await hass.async_block_till_done()
     assert conn.async_get_operation_log.await_count == 1
+
+
+async def test_a_dormant_sighting_reads_the_bolt_position_when_unknown(hass) -> None:
+    """A dormant frame has no position, but proves the lock is in range."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+    refresh.assert_called_once()
+
+
+async def test_an_awake_sighting_reads_nothing(hass) -> None:
+    """The advertisement already carried the position; there is nothing to ask."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=False))
+        await hass.async_block_till_done()
+    refresh.assert_not_called()
+
+
+async def test_the_read_is_not_repeated_on_every_advertisement(hass) -> None:
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        for _ in range(3):
+            coordinator.async_apply_advertisement(
+                MAC, _advertisement(unlocked=False, dormant=True)
+            )
+            await hass.async_block_till_done()
+    refresh.assert_called_once()
+
+
+async def test_the_read_is_tried_again_after_the_cooldown(hass) -> None:
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.ttlock_ble.coordinator import STATE_PROBE_COOLDOWN_SECONDS
+
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+        async_fire_time_changed(
+            hass,
+            dt_util.utcnow() + timedelta(seconds=STATE_PROBE_COOLDOWN_SECONDS + 1),
+        )
+        await hass.async_block_till_done()
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+    assert refresh.call_count == 2
+
+
+async def test_a_known_position_stops_the_reads(hass) -> None:
+    """Once the lock has been heard awake there is nothing left to ask about."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=True))
+    await hass.async_block_till_done()
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+    refresh.assert_not_called()
+
+
+async def test_a_sighting_of_an_unknown_lock_reads_nothing(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    coordinator.config_entry = _task_entry(hass)
+    with patch.object(coordinator, "async_request_refresh") as refresh:
+        coordinator.async_note_lock_seen("11:22:33:44:55:66")
+        await hass.async_block_till_done()
+    refresh.assert_not_called()
+
+
+async def test_learning_the_position_disarms_the_pending_read(hass) -> None:
+    """The rate limit exists to space retries, not to outlive their reason."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh"):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+    assert MAC in coordinator._state_probes
+
+    coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=True))
+    await hass.async_block_till_done()
+    assert MAC not in coordinator._state_probes

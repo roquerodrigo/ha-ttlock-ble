@@ -148,7 +148,7 @@ Two details are load-bearing:
 - The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
 - An advertisement that decodes reaches the entities via `async_set_updated_data`. Nothing here opens a session and nothing falls back to one.
 
-An advertisement we cannot decode, or one from a dormant lock, publishes nothing and asks for nothing. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
+An advertisement we cannot decode, or one from a dormant lock, carries no bolt position. While none is known at all the coordinator reads one over BLE — being heard is proof the lock is in range, which is the one moment a connect is worth attempting — rate-limited by `STATE_PROBE_COOLDOWN_SECONDS` so a lock that keeps refusing is not connected to on every advertisement it sends, and disarmed the moment a position becomes known. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
 
 The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
 

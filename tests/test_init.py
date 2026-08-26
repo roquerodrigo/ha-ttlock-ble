@@ -53,7 +53,7 @@ async def test_setup_registers_bluetooth_callback_per_lock(
     assert len(setup_integration.runtime_data.bluetooth_unsubs) == 1
 
 
-async def test_an_undecodable_advertisement_does_not_poll(
+async def test_an_undecodable_advertisement_reads_the_unknown_position(
     hass,
     sample_stored_key,
     enable_bluetooth,
@@ -61,7 +61,7 @@ async def test_an_undecodable_advertisement_does_not_poll(
     mock_cloud,
     mock_ttlock_connection,
 ) -> None:
-    """Nothing about an advertisement we cannot read justifies a BLE session."""
+    """Being heard is proof the lock is in range, which is when a read is worth it."""
     from unittest.mock import MagicMock, patch
 
     from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -94,7 +94,7 @@ async def test_an_undecodable_advertisement_does_not_poll(
     ) as mocked_refresh:
         captured_callbacks[0](service_info, MagicMock())
         await hass.async_block_till_done()
-        mocked_refresh.assert_not_called()
+        mocked_refresh.assert_called_once()
 
 
 async def test_unload_invokes_bluetooth_unsubs(
