@@ -1,9 +1,14 @@
-"""Sensor platform for ttlock_ble — battery level."""
+"""Sensor platform for ttlock_ble — battery level and last contact."""
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from homeassistant.components.bluetooth import (
+    MONOTONIC_TIME,
+    async_last_service_info,
+)
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -12,11 +17,14 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import dt as dt_util
 
 from .connection import event_signal
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -31,10 +39,15 @@ async def async_setup_entry(
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create one battery sensor per `VirtualKey`."""
+    """Create the battery and last-seen sensors for every `VirtualKey`."""
     data = entry.runtime_data
     async_add_entities(
-        TtlockBleBatterySensor(data.coordinator, key) for key in data.virtual_keys
+        sensor
+        for key in data.virtual_keys
+        for sensor in (
+            TtlockBleBatterySensor(data.coordinator, key),
+            TtlockBleLastSeenSensor(data.coordinator, key),
+        )
     )
 
 
@@ -96,3 +109,76 @@ class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
         if battery is None:
             return
         self._attr_native_value = battery
+
+
+class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
+    """
+    When Home Assistant last received an advertisement from the lock.
+
+    A lock that is working normally is silent most of the time: it holds
+    no connection, and its own advertisements are the only sign it is
+    still there. This reports the freshness of that sign, which is what
+    separates "idle" from "out of range" — a distinction the connection
+    sensor cannot make, because the session is down in both cases.
+
+    The value is read from the bluetooth manager's own history rather
+    than from the advertisement callback, because that callback is not
+    told about an advertisement whose payload matches the previous one.
+    An idle lock repeats the same bytes for as long as nothing about it
+    changes, so a sensor driven by the callback stops moving while the
+    lock is in perfect health — which is precisely backwards.
+    """
+
+    _attr_translation_key = "last_seen"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:bluetooth-audio"
+
+    def __init__(
+        self,
+        coordinator: TtlockBleDataUpdateCoordinator,
+        key: VirtualKey,
+    ) -> None:
+        """Bind the sensor to its key + coordinator."""
+        super().__init__(coordinator, key)
+        self._reported_at: float | None = None
+        self._attr_native_value: datetime | None = None
+
+    @property
+    def should_poll(self) -> bool:
+        """
+        Poll, unlike the other entities here.
+
+        Nothing notifies us when the bluetooth manager records an
+        advertisement it decided not to dispatch, and those are exactly
+        the ones this sensor exists to count.
+        """
+        return True
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_last_seen"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """
+        Return when the last advertisement arrived, as a wall-clock time.
+
+        The stored reception time is monotonic, so it is converted on
+        read and then cached against it: recomputing on every poll would
+        walk the timestamp by a fraction of a second each time and write
+        a new state for an advertisement that never changed.
+        """
+        service_info = async_last_service_info(
+            self.hass,
+            self._key.lockMac,
+            connectable=False,
+        )
+        if service_info is None:
+            return self._attr_native_value
+        if service_info.time != self._reported_at:
+            self._reported_at = service_info.time
+            age = MONOTONIC_TIME() - service_info.time
+            self._attr_native_value = dt_util.utcnow() - timedelta(seconds=age)
+        return self._attr_native_value

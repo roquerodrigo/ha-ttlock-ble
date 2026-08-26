@@ -62,8 +62,12 @@ advertisement.py → decodes lock state + battery from the advertisements
 coordinator.py   → polls every scan_interval seconds via each connection,
                     and publishes the advertised state as it arrives
 lock.py          → LockEntity backed by the BLE connection
-sensor.py        → BatterySensor backed by the same poll + push events
+sensor.py        → BatterySensor backed by the same poll + push events, and
+                    a LastSeenSensor reading the bluetooth manager's own
+                    advertisement history (see below)
 binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
+                    (named "Bluetooth connection": a healthy idle lock holds
+                    no session, so this being off says nothing about reach)
 event.py         → EventEntity that surfaces decoded LogEntry records
 record_store.py  → persists the operation-log cursor per lock, so a
                     restart resumes instead of re-seeding
@@ -127,6 +131,10 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe. The BLE drop is announced from bleak's own callback, not from the teardown that follows the cooldown, so the connectivity sensor does not claim a live link for five minutes after the link died.
 - Backlog seeding: on a lock with no restored cursor, the first operation-log fetch that actually reaches it only fills `_seen_records` and dispatches nothing. The lock returns everything unsynced since its last cursor sync, and replaying that history as live events would fire automations for unlocks from days ago. Tying it to a *successful* fetch matters — a lock out of range at setup must not spend its seeding pass on a poll that read nothing. `record_store.py` persists the cursor, so the pass runs once per lock rather than once per HA start; keying it to the start is what made a restart swallow whatever happened at the door just after it.
 - A refusal to reconnect after `async_stop`: a late caller would otherwise take the lock's single central slot with no maintain loop left to release it.
+
+### Last-seen sensor
+
+`sensor.py`'s `TtlockBleLastSeenSensor` polls `async_last_service_info` instead of following the advertisement callback, and is the one entity here that sets `should_poll`. HA's bluetooth manager does not dispatch an advertisement whose payload matches the previous one, and an idle lock repeats the same bytes for as long as nothing about it changes — so a callback-driven sensor stops moving exactly while the lock is healthy. The manager updates `_all_history` before that short-circuit, so the history is the honest source. The stored time is monotonic and is cached against on read, otherwise every poll would walk the timestamp and write a new state for an advertisement that never changed.
 
 ### Passive advertisement tracking
 

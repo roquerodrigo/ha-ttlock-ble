@@ -113,7 +113,7 @@
   "entity": {
     "binary_sensor": {
       "connection": {
-        "name": "Available"
+        "name": "Bluetooth connection"
       }
     },
     "event": {
@@ -140,6 +140,9 @@
     "sensor": {
       "battery": {
         "name": "Battery"
+      },
+      "last_seen": {
+        "name": "Last seen"
       }
     }
   }
