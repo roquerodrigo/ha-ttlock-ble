@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -251,6 +250,13 @@ async def test_advertised_records_read_once_per_cooldown(hass) -> None:
 
 async def test_unreachable_lock_is_retried_after_the_cooldown(hass) -> None:
     """An unreachable lock reports nothing rather than raising, keeping the flag up."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.ttlock_ble.coordinator import LOG_RETRY_COOLDOWN_SECONDS
+
     conn = _mock_connection()
     conn.async_get_operation_log = AsyncMock(return_value=[])
     coordinator = _log_coordinator(hass, conn)
@@ -258,16 +264,16 @@ async def test_unreachable_lock_is_retried_after_the_cooldown(hass) -> None:
         MAC, _advertisement(unlocked=False, records=True)
     )
     await hass.async_block_till_done()
-    coordinator._log_retry_after[MAC] = time.monotonic() - 1
-    coordinator.async_apply_advertisement(
-        MAC, _advertisement(unlocked=False, records=True)
+    async_fire_time_changed(
+        hass,
+        dt_util.utcnow() + timedelta(seconds=LOG_RETRY_COOLDOWN_SECONDS + 1),
     )
     await hass.async_block_till_done()
     assert conn.async_get_operation_log.await_count == 2
 
 
-async def test_flag_going_down_clears_the_cooldown(hass) -> None:
-    """A record written right after a successful read must not wait one out."""
+async def test_flag_going_down_releases_the_lock_for_the_next_record(hass) -> None:
+    """A record written right after a successful read must not wait a cooldown out."""
     conn = _mock_connection()
     coordinator = _log_coordinator(hass, conn)
     for records in (True, False, True):
@@ -315,3 +321,57 @@ async def test_advertised_records_for_an_unknown_lock_are_ignored(hass) -> None:
         "11:22:33:44:55:66", _advertisement(unlocked=False, records=True)
     )
     await hass.async_block_till_done()
+
+
+async def test_a_pending_read_is_retried_on_a_timer(hass) -> None:
+    """The lock repeats the same bytes, and HA does not forward those twice.
+
+    So a read that failed can never be retried by the next advertisement —
+    only a timer gets us back to it.
+    """
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.ttlock_ble.coordinator import LOG_RETRY_COOLDOWN_SECONDS
+
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    assert conn.async_get_operation_log.await_count == 1
+
+    async_fire_time_changed(
+        hass,
+        dt_util.utcnow() + timedelta(seconds=LOG_RETRY_COOLDOWN_SECONDS + 1),
+    )
+    await hass.async_block_till_done()
+    assert conn.async_get_operation_log.await_count == 2
+
+
+async def test_the_retry_stops_once_the_flag_clears(hass) -> None:
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=False))
+    await hass.async_block_till_done()
+
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.ttlock_ble.coordinator import LOG_RETRY_COOLDOWN_SECONDS
+
+    async_fire_time_changed(
+        hass,
+        dt_util.utcnow() + timedelta(seconds=LOG_RETRY_COOLDOWN_SECONDS + 1),
+    )
+    await hass.async_block_till_done()
+    assert conn.async_get_operation_log.await_count == 1

@@ -16,10 +16,11 @@ records, and that flag is what schedules an out-of-band log read.
 from __future__ import annotations
 
 import asyncio
-import time
+from functools import partial
 from typing import TYPE_CHECKING
 
 from homeassistant.core import callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from ttlock_ble import LockState
@@ -27,9 +28,9 @@ from ttlock_ble import LockState
 from .const import DOMAIN, LOGGER
 
 if TYPE_CHECKING:
-    from datetime import timedelta
+    from datetime import datetime, timedelta
 
-    from homeassistant.core import HomeAssistant
+    from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
     from ttlock_ble import LockAdvertisement
 
@@ -71,7 +72,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         )
         self._connections = connections
         self._log_fetches: set[str] = set()
-        self._log_retry_after: dict[str, float] = {}
+        self._records_pending: dict[str, bool] = {}
+        self._log_retries: dict[str, CALLBACK_TYPE] = {}
 
     @property
     def connections(self) -> dict[str, TtlockBleConnection]:
@@ -160,22 +162,67 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         anything done at the door: reaching it then costs several
         connect attempts, but it does answer.
         """
+        self._records_pending[mac] = advertisement.has_new_records
         if not advertisement.has_new_records:
-            self._log_retry_after.pop(mac, None)
+            self._async_cancel_log_retry(mac)
             return
+        self._async_read_log_if_due(mac)
+
+    @callback
+    def _async_read_log_if_due(self, mac: str) -> None:
+        """
+        Start a log read for `mac` unless one is running or a retry is armed.
+
+        The armed timer is the pacing: while it is pending the lock is
+        deliberately left alone, so further advertisements do not turn
+        the level into a BLE session apiece.
+        """
         connection = self._connections.get(mac)
-        if connection is None or mac in self._log_fetches:
+        if connection is None or mac in self._log_fetches or mac in self._log_retries:
             return
-        now = time.monotonic()
-        if now < self._log_retry_after.get(mac, 0.0):
-            return
-        self._log_retry_after[mac] = now + LOG_RETRY_COOLDOWN_SECONDS
         self._log_fetches.add(mac)
         self.config_entry.async_create_task(
             self.hass,
             self._async_fetch_operation_log(mac, connection),
             name=f"{DOMAIN}.advertised_operation_log.{mac}",
         )
+
+    @callback
+    def _async_schedule_log_retry(self, mac: str) -> None:
+        """
+        Come back to `mac` on a timer while it still owes us records.
+
+        A read that did not reach the lock leaves the flag up, and the
+        lock keeps advertising the very same bytes — which HA's
+        bluetooth manager does not forward a second time. Waiting for
+        another advertisement to retry therefore waits forever; the
+        timer is the only thing that gets us back.
+        """
+        self._async_cancel_log_retry(mac)
+        self._log_retries[mac] = async_call_later(
+            self.hass,
+            LOG_RETRY_COOLDOWN_SECONDS,
+            partial(self._async_retry_log, mac),
+        )
+
+    @callback
+    def _async_cancel_log_retry(self, mac: str) -> None:
+        """Drop any pending retry timer for `mac`."""
+        cancel = self._log_retries.pop(mac, None)
+        if cancel is not None:
+            cancel()
+
+    @callback
+    def _async_retry_log(self, mac: str, _now: datetime) -> None:
+        """
+        Come back to a lock that still owes us records.
+
+        No flag re-check here: an advertisement that clears it cancels
+        this timer synchronously, so reaching this point means the
+        records are still outstanding.
+        """
+        self._log_retries.pop(mac, None)
+        self._async_read_log_if_due(mac)
 
     async def _async_fetch_operation_log(
         self,
@@ -197,6 +244,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             )
         finally:
             self._log_fetches.discard(mac)
+            if self._records_pending.get(mac, False):
+                self._async_schedule_log_retry(mac)
 
     async def _async_update_data(self) -> TtlockBleCoordinatorData:
         """Poll every connection once and return the aggregated state map."""

@@ -192,6 +192,13 @@ async def test_last_seen_is_unknown_while_nothing_was_ever_received(
     assert _last_seen_state(hass).state in ("unknown", "unavailable")
 
 
+def _added_last_seen_entity(hass):
+    """The live last-seen entity, as the platform added it."""
+    entity_id = _last_seen_state(hass).entity_id
+    component = hass.data["entity_components"]["sensor"]
+    return next(e for e in component.entities if e.entity_id == entity_id)
+
+
 def _sensor(hass, setup_integration, sample_virtual_key):
     from custom_components.ttlock_ble.sensor import TtlockBleLastSeenSensor
 
@@ -311,8 +318,57 @@ async def test_last_seen_keeps_its_value_when_history_is_dropped(
         assert entity.native_value == seen
 
 
-async def test_last_seen_sensor_polls(
-    hass, setup_integration, sample_virtual_key
+def _added_last_seen_entity(hass):
+    """The live last-seen entity, as the platform added it."""
+    entity_id = _last_seen_state(hass).entity_id
+    component = hass.data["entity_components"]["sensor"]
+    return next(e for e in component.entities if e.entity_id == entity_id)
+
+
+async def test_last_seen_never_polls_the_lock(
+    hass,
+    setup_integration,
+    sample_virtual_key,
 ) -> None:
-    """The manager never tells us about an advertisement it did not dispatch."""
-    assert _sensor(hass, setup_integration, sample_virtual_key).should_poll is True
+    """Reading local memory must not open a BLE session.
+
+    `should_poll` on a `CoordinatorEntity` means `async_request_refresh`,
+    which connects to the lock. This sensor keeps its own timer instead.
+    """
+    assert _sensor(hass, setup_integration, sample_virtual_key).should_poll is False
+
+
+async def test_last_seen_rereads_without_touching_the_coordinator(
+    hass,
+    setup_integration,
+) -> None:
+    """Nothing announces an advertisement the manager recorded but did not dispatch."""
+    from datetime import timedelta
+    from unittest.mock import MagicMock, patch
+
+    from homeassistant.util import dt as dt_util
+
+    state = _last_seen_state(hass)
+    info = MagicMock()
+    info.time = 1000.0
+    with (
+        patch(
+            "custom_components.ttlock_ble.sensor.async_last_service_info",
+            return_value=info,
+        ),
+        patch(
+            "custom_components.ttlock_ble.sensor.MONOTONIC_TIME", return_value=1010.0
+        ),
+        patch.object(
+            setup_integration.runtime_data.coordinator,
+            "async_request_refresh",
+        ) as refresh,
+    ):
+        _added_last_seen_entity(hass)._async_reread_history(dt_util.utcnow())
+        await hass.async_block_till_done()
+        expected = dt_util.utcnow() - timedelta(seconds=10)
+
+    written = dt_util.parse_datetime(hass.states.get(state.entity_id).state)
+    assert written is not None
+    assert abs((written - expected).total_seconds()) < 5
+    refresh.assert_not_called()

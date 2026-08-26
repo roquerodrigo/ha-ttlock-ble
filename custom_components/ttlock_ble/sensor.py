@@ -17,6 +17,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .connection import event_signal
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
 
     from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry
+
+# How often the recorded advertisement time is re-read. Costs nothing on
+# the wire: it only looks at what the bluetooth manager already holds.
+LAST_SEEN_REFRESH_INTERVAL = timedelta(seconds=30)
 
 
 async def async_setup_entry(
@@ -127,6 +132,14 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
     An idle lock repeats the same bytes for as long as nothing about it
     changes, so a sensor driven by the callback stops moving while the
     lock is in perfect health — which is precisely backwards.
+
+    Nothing announces those recorded-but-undispatched advertisements, so
+    the value is re-read on a timer. The timer is this entity's own and
+    not `should_poll`: on a `CoordinatorEntity` polling means
+    `async_request_refresh`, which opens a BLE session to the lock. That
+    turned a passive read of local memory into a connection every
+    refresh interval, against a lock whose polling is deliberately
+    spaced by `scan_interval`.
     """
 
     _attr_translation_key = "last_seen"
@@ -144,16 +157,21 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
         self._reported_at: float | None = None
         self._attr_native_value: datetime | None = None
 
-    @property
-    def should_poll(self) -> bool:
-        """
-        Poll, unlike the other entities here.
+    async def async_added_to_hass(self) -> None:
+        """Re-read the history on a timer of its own."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_reread_history,
+                LAST_SEEN_REFRESH_INTERVAL,
+            ),
+        )
 
-        Nothing notifies us when the bluetooth manager records an
-        advertisement it decided not to dispatch, and those are exactly
-        the ones this sensor exists to count.
-        """
-        return True
+    @callback
+    def _async_reread_history(self, _now: datetime) -> None:
+        """Publish whatever the bluetooth manager has recorded since."""
+        self.async_write_ha_state()
 
     @property
     def unique_id(self) -> str:
