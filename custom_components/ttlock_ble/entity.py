@@ -44,7 +44,7 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
             connections={(CONNECTION_BLUETOOTH, mac)},
             name=self._key.lockAlias or self._key.lockName or self._key.lockMac,
             manufacturer=MANUFACTURER,
-            model=f"protocol {self._key.lockVersion.protocolType}."
+            model=f"Protocol {self._key.lockVersion.protocolType}."
             f"{self._key.lockVersion.protocolVersion}",
         )
 

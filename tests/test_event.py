@@ -151,3 +151,66 @@ async def test_log_event_has_unique_id(
     reg_entry = registry.async_get(state.entity_id)
     assert reg_entry is not None
     assert reg_entry.unique_id == f"{sample_virtual_key.lockMac}_log"
+
+
+def test_every_record_type_is_deliberately_classified() -> None:
+    """A record the SDK knows about must not fall into `other` by accident.
+
+    The buckets plus the explicit opt-out have to account for the whole
+    enum, so a type added to the SDK later fails here until someone has
+    decided what it means rather than silently becoming `other`.
+    """
+    from ttlock_ble import LogOperate
+
+    from custom_components.ttlock_ble.event import (
+        LOCK_RECORD_TYPES,
+        PASSWORD_CHANGE_RECORD_TYPES,
+        UNBUCKETED_RECORD_TYPES,
+        UNLOCK_FAILED_RECORD_TYPES,
+        UNLOCK_RECORD_TYPES,
+    )
+
+    accounted = (
+        UNLOCK_RECORD_TYPES
+        | LOCK_RECORD_TYPES
+        | UNLOCK_FAILED_RECORD_TYPES
+        | PASSWORD_CHANGE_RECORD_TYPES
+        | UNBUCKETED_RECORD_TYPES
+    )
+    assert set(LogOperate) - accounted == set()
+
+
+def test_the_buckets_do_not_overlap() -> None:
+    """A record type means one thing; two buckets would make order decide."""
+    from custom_components.ttlock_ble.event import (
+        LOCK_RECORD_TYPES,
+        PASSWORD_CHANGE_RECORD_TYPES,
+        UNBUCKETED_RECORD_TYPES,
+        UNLOCK_FAILED_RECORD_TYPES,
+        UNLOCK_RECORD_TYPES,
+    )
+
+    buckets = [
+        UNLOCK_RECORD_TYPES,
+        LOCK_RECORD_TYPES,
+        UNLOCK_FAILED_RECORD_TYPES,
+        PASSWORD_CHANGE_RECORD_TYPES,
+        UNBUCKETED_RECORD_TYPES,
+    ]
+    for i, first in enumerate(buckets):
+        for second in buckets[i + 1 :]:
+            assert first & second == frozenset()
+
+
+def test_a_passcode_carrying_record_never_leaks_its_code() -> None:
+    """Newly classified types must not have widened what reaches an attribute."""
+    from ttlock_ble import LogOperate
+
+    from custom_components.ttlock_ble.event import (
+        PASSCODE_RECORD_TYPES,
+        UNLOCK_RECORD_TYPES,
+    )
+
+    assert LogOperate.ADMIN_CODE_UNLOCK in PASSCODE_RECORD_TYPES
+    assert LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK in PASSCODE_RECORD_TYPES
+    assert LogOperate.ADMIN_CODE_UNLOCK in UNLOCK_RECORD_TYPES

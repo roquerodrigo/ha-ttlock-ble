@@ -77,6 +77,7 @@ async def async_setup_entry(
 UNLOCK_RECORD_TYPES: frozenset[int] = frozenset(
     {
         LogOperate.MOBILE_UNLOCK,
+        LogOperate.SERVER_UNLOCK,
         LogOperate.KEYBOARD_PASSWORD_UNLOCK,
         LogOperate.IC_UNLOCK_SUCCEED,
         LogOperate.FR_UNLOCK_SUCCEED,
@@ -85,6 +86,22 @@ UNLOCK_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.WIRELESS_KEY_FOB,
         LogOperate.WIRELESS_KEY_PAD,
         LogOperate.REMOTE_CONTROL_KEY,
+        LogOperate.OPERATE_KEY_UNLOCK,
+        LogOperate.DOOR_SENSOR_UNLOCK,
+        LogOperate.QR_CODE_UNLOCK_SUCCESS,
+        LogOperate.FACE_3D_UNLOCK_SUCCESS,
+        LogOperate.APP_AUTH_KEY_UNLOCK_SUCCESS,
+        LogOperate.GATEWAY_AUTH_KEY_UNLOCK_SUCCESS,
+        LogOperate.DOUBLE_CHECK_KEY_UNLOCK,
+        LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK,
+        LogOperate.DOUBLE_CHECK_FINGER_PRINT_UNLOCK,
+        LogOperate.DOUBLE_CHECK_CARD_UNLOCK,
+        LogOperate.DOUBLE_CHECK_FACE_UNLOCK,
+        LogOperate.DOUBLE_CHECK_KEY_FOB_UNLOCK,
+        LogOperate.DOUBLE_CHECK_PALM_VEIN_UNLOCK,
+        LogOperate.PALM_VEIN_UNLOCK_SUCCESS,
+        LogOperate.ADMIN_CODE_UNLOCK,
+        LogOperate.THIRD_DEVICE_UNLOCK_SUCCESS,
     },
 )
 
@@ -94,6 +111,12 @@ LOCK_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.PASSCODE_LOCK,
         LogOperate.IC_LOCK,
         LogOperate.FR_LOCK,
+        LogOperate.DOOR_SENSOR_LOCK,
+        LogOperate.OPERATE_KEY_LOCK,
+        LogOperate.APP_DEAD_LOCK,
+        LogOperate.FACE_3D_LOCK,
+        LogOperate.PALM_VEIN_LOCK,
+        LogOperate.THIRD_DEVICE_LOCK_SUCCESS,
     },
 )
 
@@ -107,9 +130,24 @@ UNLOCK_FAILED_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.FR_UNLOCK_FAILED_LOCK_REVERSE,
         LogOperate.PASSCODE_EXPIRED,
         LogOperate.PASSCODE_IN_BLACK_LIST,
+        LogOperate.IC_UNLOCK_FAILED,
+        LogOperate.IC_UNLOCK_FAILED_BLACKLIST,
+        LogOperate.QR_CODE_UNLOCK_FAILED,
+        LogOperate.FACE_3D_UNLOCK_FAILED_LOCK_REVERSE,
+        LogOperate.FACE_3D_UNLOCK_FAILED_INVALID_TIME,
+        LogOperate.CPU_CARD_UNLOCK_FAILED,
+        LogOperate.PALM_VEIN_UNLOCK_FAILED_LOCK_REVERSE,
+        LogOperate.PALM_VEIN_UNLOCK_FAILED,
+        LogOperate.CARD_UNLOCK_FAILED,
+        LogOperate.THIRD_DEVICE_UNLOCK_FAILED_LOCK_REVERSE,
+        LogOperate.THIRD_DEVICE_UNLOCK_FAILED_INVALID_TIME,
     },
 )
 
+# Credential management, whatever the credential is. The event type is
+# named after passcodes because that is all the firmware could manage
+# when it was added, and renaming it now would break every automation
+# listening for it.
 PASSWORD_CHANGE_RECORD_TYPES: frozenset[int] = frozenset(
     {
         LogOperate.KEYBOARD_MODIFY_PASSWORD,
@@ -122,6 +160,40 @@ PASSWORD_CHANGE_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.DELETE_IC_SUCCEED,
         LogOperate.ADD_FR,
         LogOperate.DELETE_FR_SUCCEED,
+        LogOperate.CLEAR_FR_SUCCEED,
+        LogOperate.FACE_3D_ADD_SUCCESS,
+        LogOperate.FACE_3D_DELETE_SUCCESS,
+        LogOperate.FACE_3D_CLEAR_SUCCESS,
+        LogOperate.PALM_VEIN_ADD_SUCCESS,
+        LogOperate.PALM_VEIN_DELETE_SUCCESS,
+        LogOperate.PALM_VEIN_CLEAR_SUCCESS,
+        LogOperate.ADD_PASSCODE_SUCCESSFULLY,
+        LogOperate.ADD_THIRD_DEVICE,
+        LogOperate.DELETE_THIRD_DEVICE,
+        LogOperate.CLEAR_THIRD_DEVICE,
+    },
+)
+
+# Records that are deliberately left as `other` because none of the four
+# buckets is honest about them. Listed rather than left implicit so the
+# coverage test can tell a considered omission from a forgotten record —
+# `record_type` still names each one exactly, which is what an automation
+# should match on.
+UNBUCKETED_RECORD_TYPES: frozenset[int] = frozenset(
+    {
+        # Storage is full; nothing opened or closed.
+        LogOperate.SPACE_INSUFFICIENT,
+        # The lock restarted.
+        LogOperate.DOOR_REBOOT,
+        # Opened without a credential the lock recognises. Neither a
+        # successful unlock nor a refused one, and guessing either way
+        # would misreport a security event.
+        LogOperate.ILLEGAL_UNLOCK,
+        # The door was left open / someone went out; no bolt operation.
+        LogOperate.DOOR_GO_OUT,
+        # A verification step of a two-factor flow, not the unlock that
+        # may or may not follow it.
+        LogOperate.DOUBLE_CHECK_THIRD_DEVICE_VERIFY,
     },
 )
 

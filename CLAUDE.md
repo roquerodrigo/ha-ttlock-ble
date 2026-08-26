@@ -164,7 +164,7 @@ The diagnostics dump carries the last advertisement per lock, raw bytes included
 
 ### Event entity
 
-`event.py` republishes decoded `LogEntry` records. The SDK carries keypad codes, card numbers, fingerprint ids and fob MACs in one `password` field; only the first are secret, so `PASSCODE_RECORD_TYPES` lists the record types whose value is a working door code and those never reach an event attribute. An attribute lands in the recorder database and is readable through the API by any user, admin or not.
+`event.py` republishes decoded `LogEntry` records. Every `LogOperate` the SDK knows is accounted for: the four buckets plus `UNBUCKETED_RECORD_TYPES`, an explicit list of records no bucket describes honestly (storage full, reboot, `illegal_unlock`, door left open, a two-factor verification step). A test asserts the union covers the enum, so a record type added to the SDK later fails the suite instead of quietly becoming `other`. Note that an auto-lock produces no record at all — the firmware writes none — which is why the advertisement channel is the only way to see one. The SDK carries keypad codes, card numbers, fingerprint ids and fob MACs in one `password` field; only the first are secret, so `PASSCODE_RECORD_TYPES` lists the record types whose value is a working door code and those never reach an event attribute. An attribute lands in the recorder database and is readable through the API by any user, admin or not.
 
 ### Diagnostics
 

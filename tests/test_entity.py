@@ -38,7 +38,7 @@ async def test_entity_device_info_model_carries_protocol(
     hass, sample_virtual_key
 ) -> None:
     info = _entity(hass, sample_virtual_key).device_info
-    assert "protocol" in info["model"]
+    assert info["model"] == "Protocol 5.3"
 
 
 async def test_entity_falls_back_to_lock_name_when_alias_missing(
