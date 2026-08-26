@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from ttlock_ble import LockEvent, TTLockError
+from ttlock_ble import DeviceInfo, LockEvent, TTLockError
 
 from custom_components.ttlock_ble.connection import (
     TtlockBleConnection,
@@ -722,3 +722,39 @@ async def test_set_lock_sound_raises_when_out_of_range(
         pytest.raises(TTLockError),
     ):
         await conn.async_set_lock_sound(enabled=True)
+
+
+async def test_device_info_returns_what_the_lock_reports(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    info = DeviceInfo(model="SN534-4P-T78-BELL", firmware_revision="6.5.20.24121101")
+    mock_ttlock_client.get_device_info = AsyncMock(return_value=info)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_device_info() is info
+
+
+async def test_device_info_returns_none_when_device_missing(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_device_info() is None
+    mock_ttlock_client.connect.assert_not_awaited()
+
+
+async def test_device_info_that_breaks_the_link_costs_nothing_else(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """Hardware strings are not worth failing the poll that carried them."""
+    mock_ttlock_client.get_device_info = AsyncMock(side_effect=TTLockError("link down"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_device_info() is None

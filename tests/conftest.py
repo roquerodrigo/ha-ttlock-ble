@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from ttlock_ble import VirtualKey
+from ttlock_ble import DeviceInfo, VirtualKey
 from ttlock_ble.models.lock_version import LockVersion
 
 # Eagerly import the integration submodules so `unittest.mock.patch` can
@@ -141,6 +141,7 @@ def mock_ttlock_client() -> Generator[MagicMock]:
     instance.disconnect = AsyncMock(return_value=None)
     instance.query_state = AsyncMock(return_value=(0, 80))
     instance.get_operation_log = AsyncMock(return_value=[])
+    instance.get_device_info = AsyncMock(return_value=DeviceInfo())
     instance.lock = AsyncMock(return_value=None)
     instance.unlock = AsyncMock(return_value=None)
     instance.set_lock_sound = AsyncMock(return_value=None)
@@ -159,6 +160,7 @@ def mock_ttlock_connection() -> Generator[MagicMock]:
     instance.async_stop = AsyncMock(return_value=None)
     instance.async_query_state = AsyncMock(return_value=(0, 80))
     instance.async_get_operation_log = AsyncMock(return_value=[])
+    instance.async_get_device_info = AsyncMock(return_value=None)
     instance.async_lock = AsyncMock(return_value=None)
     instance.async_unlock = AsyncMock(return_value=None)
     instance.async_set_lock_sound = AsyncMock(return_value=None)

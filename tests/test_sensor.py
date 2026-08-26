@@ -151,11 +151,15 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
     """An empty coordinator snapshot leaves `_attr_native_value` untouched."""
 
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.device_description_store import (
+        TtlockBleDeviceDescriptionStore,
+    )
     from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
 
     coordinator = TtlockBleDataUpdateCoordinator(
         hass,
         {},
+        TtlockBleDeviceDescriptionStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)

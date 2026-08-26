@@ -115,6 +115,7 @@ custom_components/ttlock_ble/
 ├── const.py           # DOMAIN, LOGGER, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection
 ├── data/              # one TypedDict/dataclass per file + type aliases in __init__.py
+├── device_description_store.py  # per-lock model / hardware / firmware, persisted
 ├── diagnostics.py     # redacted credentials/keys
 ├── entity.py          # base CoordinatorEntity with DeviceInfo
 ├── event.py           # TtlockBleLogEvent: operation-log records as HA events

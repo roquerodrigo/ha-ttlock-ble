@@ -37,15 +37,33 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """One Home Assistant device per physical lock, keyed by MAC."""
+        """
+        One Home Assistant device per physical lock, keyed by MAC.
+
+        Model, hardware and firmware come from what the lock itself
+        reported the last time one was read off it. Until then the model
+        falls back to the protocol version carried by the key, which is
+        the only thing known about a lock nobody has connected to yet.
+        """
         mac = format_mac(self._key.lockMac)
+        description = self.coordinator.async_device_description(self._key.lockMac)
+        model = None if description is None else description["model"]
         return DeviceInfo(
             identifiers={(DOMAIN, mac)},
             connections={(CONNECTION_BLUETOOTH, mac)},
             name=self._key.lockAlias or self._key.lockName or self._key.lockMac,
             manufacturer=MANUFACTURER,
-            model=f"Protocol {self._key.lockVersion.protocolType}."
-            f"{self._key.lockVersion.protocolVersion}",
+            model=model or self._protocol_model,
+            hw_version=None if description is None else description["hardware_version"],
+            sw_version=None if description is None else description["firmware_version"],
+        )
+
+    @property
+    def _protocol_model(self) -> str:
+        """Return the protocol version the key carries, as a model string."""
+        return (
+            f"Protocol {self._key.lockVersion.protocolType}."
+            f"{self._key.lockVersion.protocolVersion}"
         )
 
     @property

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, TypedDict
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from .device_description import TtlockBleDeviceDescription
     from .diagnostics_advertisement import TtlockBleDiagnosticsAdvertisement
     from .diagnostics_entry import TtlockBleDiagnosticsEntry
     from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
@@ -20,3 +21,4 @@ class TtlockBleDiagnosticsPayload(TypedDict):
     locks: list[TtlockBleDiagnosticsLockSummary]
     coordinator_state: Mapping[str, TtlockBleLockState]
     advertisements: Mapping[str, TtlockBleDiagnosticsAdvertisement | None]
+    device_descriptions: Mapping[str, TtlockBleDeviceDescription | None]

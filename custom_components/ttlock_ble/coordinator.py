@@ -19,7 +19,12 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import (
+    async_get as async_get_device_registry,
+)
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from ttlock_ble import LockState
@@ -37,8 +42,10 @@ if TYPE_CHECKING:
     from .data import (
         TtlockBleConfigEntry,
         TtlockBleCoordinatorData,
+        TtlockBleDeviceDescription,
         TtlockBleLockState,
     )
+    from .device_description_store import TtlockBleDeviceDescriptionStore
 
 
 LOCK_STATE_LOCKED = 0
@@ -65,6 +72,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self,
         hass: HomeAssistant,
         connections: dict[str, TtlockBleConnection],
+        descriptions: TtlockBleDeviceDescriptionStore,
     ) -> None:
         """
         Pin the per-MAC connection map. No polling interval on purpose.
@@ -78,6 +86,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         """
         super().__init__(hass=hass, logger=LOGGER, name=DOMAIN)
         self._connections = connections
+        self._descriptions = descriptions
+        self._described: set[str] = set()
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
@@ -87,6 +97,11 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
     def connections(self) -> dict[str, TtlockBleConnection]:
         """Return the per-MAC connection map this coordinator polls."""
         return self._connections
+
+    @callback
+    def async_device_description(self, mac: str) -> TtlockBleDeviceDescription | None:
+        """Return the hardware strings `mac` last reported about itself."""
+        return self._descriptions.get(mac)
 
     @callback
     def async_has_state(self, mac: str) -> bool:
@@ -340,10 +355,67 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
                 connection.key.lockMac,
                 exc_info=True,
             )
+        await self._async_describe(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
         }
+
+    async def _async_describe(self, connection: TtlockBleConnection) -> None:
+        """
+        Read the lock's hardware strings once per run, on an open session.
+
+        Model, hardware and firmware are static, and each costs a BLE
+        round trip, so this rides on a poll that just reached the lock
+        instead of connecting for them. Once per Home Assistant run
+        rather than once ever: a firmware upgrade changes what the lock
+        answers, and a value stored forever would outlive the truth.
+        """
+        mac = connection.key.lockMac
+        if mac in self._described:
+            return
+        info = await connection.async_get_device_info()
+        if info is None:
+            return
+        self._described.add(mac)
+        description: TtlockBleDeviceDescription = {
+            "model": info.model,
+            "hardware_version": info.hardware_revision,
+            "firmware_version": info.firmware_revision,
+        }
+        if description == self._descriptions.get(mac):
+            return
+        self._descriptions.async_remember(mac, description)
+        self._async_apply_description(mac, description)
+
+    @callback
+    def _async_apply_description(
+        self,
+        mac: str,
+        description: TtlockBleDeviceDescription,
+    ) -> None:
+        """
+        Stamp the hardware strings onto the registry device for `mac`.
+
+        The entity's `device_info` is only read when the entity is
+        registered, so a description learned mid-run would otherwise
+        wait for the next restart to show up. A field the lock did not
+        answer is left untouched rather than blanked - the protocol
+        version the entity falls back to is worth more than an empty
+        model.
+        """
+        device_registry = async_get_device_registry(self.hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, format_mac(mac))},
+        )
+        if device is None:
+            return
+        device_registry.async_update_device(
+            device.id,
+            model=description["model"] or UNDEFINED,
+            hw_version=description["hardware_version"] or UNDEFINED,
+            sw_version=description["firmware_version"] or UNDEFINED,
+        )
 
 
 def _parse_lock_state(raw: int | None) -> bool | None:

@@ -1111,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "ha-ttlock-ble"
-version = "3.6.0"
+version = "3.6.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1155,7 +1155,7 @@ dev = [
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.354" },
     { name = "serialx", specifier = "==1.8.2" },
-    { name = "ttlock-ble", specifier = "==0.2.0" },
+    { name = "ttlock-ble", specifier = "==0.2.2" },
 ]
 lint = [
     { name = "mypy", specifier = "==2.3.1" },
@@ -2734,7 +2734,7 @@ wheels = [
 
 [[package]]
 name = "ttlock-ble"
-version = "0.2.0"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -2742,9 +2742,9 @@ dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/49/a686388fe10fce1481f3c59915cd8b2fb96d93347b79ee2a7e2af4e35464/ttlock_ble-0.2.0.tar.gz", hash = "sha256:3247f8c9749102e64a511187ff87174e407a1f9c6af6e99e1901af6baa25cc12", size = 47744, upload-time = "2026-08-25T23:49:32.255Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/1e/a26b29e09afa5d8368d56aa99229309ecbeef0449233cbe943b8f31378cc/ttlock_ble-0.2.2.tar.gz", hash = "sha256:443dc0fb5470a9fcbc8d089d5d85547273b3136f1f760111d3471bc6e0c13ed1", size = 51251, upload-time = "2026-08-26T19:46:34.79Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/dd/75fc1708345e096cd80cdf4890c6e71b406efb84ce8c5538364b01683f9b/ttlock_ble-0.2.0-py3-none-any.whl", hash = "sha256:996833038f1604ba811a3cb3d8db8e8b5dad01557794bd1289ab733663e5d511", size = 61613, upload-time = "2026-08-25T23:49:31.171Z" },
+    { url = "https://files.pythonhosted.org/packages/43/73/afe017051116013e2f2ba1fdbdb6bee17a1646e44c277252f12c28badab9/ttlock_ble-0.2.2-py3-none-any.whl", hash = "sha256:d37263f50a035c0f0547c9a6cba1de64659388871610b664cd39f6c9130d6553", size = 65836, upload-time = "2026-08-26T19:46:33.844Z" },
 ]
 
 [[package]]

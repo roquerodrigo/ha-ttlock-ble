@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from bleak import BleakClient
     from homeassistant.core import HomeAssistant
 
-    from ttlock_ble import LockEvent, LockState, LogEntry, VirtualKey
+    from ttlock_ble import DeviceInfo, LockEvent, LockState, LogEntry, VirtualKey
 
 
 RECONNECT_INITIAL_BACKOFF = 1.0
@@ -155,6 +155,34 @@ class TtlockBleConnection:
                     exc,
                 )
                 await self._async_disconnect_locked()
+                return None
+
+    async def async_get_device_info(self) -> DeviceInfo | None:
+        """
+        Read the lock's Device Information Service through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        These are plain Bluetooth SIG characteristics rather than the
+        lock's own protocol, so nothing here is encrypted and no
+        handshake is involved - but they still need a session, and the
+        lock only grants one while it is awake.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_device_info()
+            except Exception as exc:  # noqa: BLE001
+                # The SDK reports an unreadable characteristic as `None`
+                # rather than raising, so anything arriving here broke
+                # the link itself. Hardware strings are not worth losing
+                # a poll over: the caller keeps whatever it knew.
+                LOGGER.debug(
+                    "get_device_info failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
                 return None
 
     async def async_lock(self) -> None:

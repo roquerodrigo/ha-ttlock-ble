@@ -60,13 +60,18 @@ async def async_get_config_entry_diagnostics(
     locks: list[TtlockBleDiagnosticsLockSummary] = [
         _summarize_key(key) for key in entry.runtime_data.keys
     ]
-    coordinator_state = entry.runtime_data.coordinator.data or {}
+    coordinator = entry.runtime_data.coordinator
+    coordinator_state = coordinator.data or {}
     return {
         "entry": diag_entry,
         "locks": locks,
         "coordinator_state": dict(coordinator_state),
         "advertisements": {
             key["lockMac"]: _summarize_advertisement(hass, key["lockMac"])
+            for key in entry.runtime_data.keys
+        },
+        "device_descriptions": {
+            key["lockMac"]: coordinator.async_device_description(key["lockMac"])
             for key in entry.runtime_data.keys
         },
     }

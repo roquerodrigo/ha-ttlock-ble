@@ -155,3 +155,38 @@ async def test_diagnostics_decoded_is_none_for_a_foreign_payload(
         diagnostics = await async_get_config_entry_diagnostics(hass, setup_integration)
 
     assert diagnostics["advertisements"][sample_virtual_key.lockMac]["decoded"] is None
+
+
+async def test_diagnostics_reports_no_description_before_a_lock_is_read(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from custom_components.ttlock_ble.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, setup_integration)
+    assert diagnostics["device_descriptions"][sample_virtual_key.lockMac] is None
+
+
+async def test_diagnostics_carries_the_hardware_strings(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """Model and firmware are the first thing a bug report is asked for."""
+    from custom_components.ttlock_ble.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    description = {
+        "model": "SN534-4P-T78-BELL",
+        "hardware_version": "1.7",
+        "firmware_version": "6.5.20.24121101",
+    }
+    coordinator = setup_integration.runtime_data.coordinator
+    coordinator._descriptions.async_remember(sample_virtual_key.lockMac, description)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, setup_integration)
+    assert diagnostics["device_descriptions"][sample_virtual_key.lockMac] == description

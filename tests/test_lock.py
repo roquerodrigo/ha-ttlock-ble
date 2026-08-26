@@ -661,11 +661,15 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
     from unittest.mock import MagicMock
 
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.device_description_store import (
+        TtlockBleDeviceDescriptionStore,
+    )
     from custom_components.ttlock_ble.lock import TtlockBleLock
 
     coordinator = TtlockBleDataUpdateCoordinator(
         hass,
         {},
+        TtlockBleDeviceDescriptionStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleLock(coordinator, sample_virtual_key, MagicMock())

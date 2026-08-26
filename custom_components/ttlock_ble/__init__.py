@@ -22,6 +22,7 @@ from .connection import TtlockBleConnection
 from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBleLogCursor
+from .device_description_store import TtlockBleDeviceDescriptionStore
 from .record_store import TtlockBleRecordStore
 
 if TYPE_CHECKING:
@@ -122,7 +123,13 @@ async def async_setup_entry(
         for connection in connections.values():
             await connection.async_start()
 
-    coordinator = TtlockBleDataUpdateCoordinator(hass=hass, connections=connections)
+    description_store = TtlockBleDeviceDescriptionStore(hass)
+    await description_store.async_load()
+    coordinator = TtlockBleDataUpdateCoordinator(
+        hass=hass,
+        connections=connections,
+        descriptions=description_store,
+    )
 
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
         virtual_keys,

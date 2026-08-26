@@ -72,6 +72,10 @@ event.py         → EventEntity that surfaces decoded LogEntry records
 switch.py        → the lock's beep; assumed state, admin keys only
 record_store.py  → persists the operation-log cursor per lock, so a
                     restart resumes instead of re-seeding
+device_description_store.py
+                 → persists what each lock reported about itself (model,
+                    hardware, firmware), so a restart shows it before any
+                    session is opened
 ```
 
 ### Entry typing
@@ -152,6 +156,14 @@ Two details are load-bearing:
 An advertisement we cannot decode, or one from a dormant lock, carries no bolt position. While none is known at all the coordinator reads one over BLE — being heard is proof the lock is in range, which is the one moment a connect is worth attempting — rate-limited by `STATE_PROBE_COOLDOWN_SECONDS` so a lock that keeps refusing is not connected to on every advertisement it sends, and disarmed the moment a position becomes known. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
 
 The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
+
+### Device description
+
+`device_description_store.py` keeps, per MAC, the model, hardware and firmware strings the lock answers over the standard BLE Device Information Service (`get_device_info()` in the SDK). Three things shape it:
+
+- **Nothing connects for them.** The read rides on a poll that just reached the lock, in `coordinator.py`'s `_async_describe`. A lock only grants a session while it is awake, and hardware strings are not worth waking one for.
+- **Once per Home Assistant run, not once ever.** The values are static until a firmware upgrade changes them, so the store is what a restart displays, and the first successful poll of each run re-reads and replaces it.
+- **The registry device is updated in place.** An entity's `device_info` is only read when the entity is registered, so a description learned mid-run would otherwise wait for the next restart to appear. A field the lock did not answer is left untouched rather than blanked — `entity.py` falls back to the key's protocol version for the model, which beats an empty one.
 
 ### Lock entity
 

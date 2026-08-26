@@ -4,10 +4,14 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from ttlock_ble import DeviceInfo
 
 from custom_components.ttlock_ble.coordinator import (
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
+)
+from custom_components.ttlock_ble.device_description_store import (
+    TtlockBleDeviceDescriptionStore,
 )
 
 
@@ -24,17 +28,20 @@ def test_parse_lock_state_unknown(raw_state: int) -> None:
     assert _parse_lock_state(raw_state) is None
 
 
-def _mock_connection(*, query_return=(0, 80)) -> MagicMock:
+def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicMock:
     conn = MagicMock()
+    conn.key = MagicMock(lockMac=mac)
     conn.async_query_state = AsyncMock(return_value=query_return)
     conn.async_get_operation_log = AsyncMock(return_value=[])
+    conn.async_get_device_info = AsyncMock(return_value=None)
     return conn
 
 
-def _coordinator(hass, connections):
+def _coordinator(hass, connections, descriptions=None):
     return TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,
+        descriptions=descriptions or TtlockBleDeviceDescriptionStore(hass),
     )
 
 
@@ -471,3 +478,140 @@ async def test_learning_the_position_disarms_the_pending_read(hass) -> None:
     coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=True))
     await hass.async_block_till_done()
     assert MAC not in coordinator._state_probes
+
+
+def _device_info(**overrides) -> DeviceInfo:
+    """Build the SDK's device info with the fields a lock actually answers."""
+    fields = {
+        "model": "SN534-4P-T78-BELL",
+        "hardware_revision": "1.7",
+        "firmware_revision": "6.5.20.24121101",
+    }
+    return DeviceInfo(**{**fields, **overrides})
+
+
+DESCRIPTION = {
+    "model": "SN534-4P-T78-BELL",
+    "hardware_version": "1.7",
+    "firmware_version": "6.5.20.24121101",
+}
+
+
+async def test_a_poll_learns_what_the_lock_reports_about_itself(hass) -> None:
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info())
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    assert coordinator.async_device_description(MAC) == DESCRIPTION
+
+
+async def test_the_hardware_strings_are_read_once_per_run(hass) -> None:
+    """They are static, and each field costs its own BLE round trip."""
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info())
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    assert conn.async_get_device_info.await_count == 1
+
+
+async def test_a_read_that_did_not_reach_the_lock_is_tried_again(hass) -> None:
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(side_effect=[None, _device_info()])
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    assert coordinator.async_device_description(MAC) is None
+
+    await coordinator._async_update_data()
+    assert coordinator.async_device_description(MAC) == DESCRIPTION
+
+
+async def test_an_unchanged_description_is_not_written_again(hass) -> None:
+    """A restart re-reads the lock; nothing about the device has to move."""
+    descriptions = TtlockBleDeviceDescriptionStore(hass)
+    descriptions.async_remember(MAC, DESCRIPTION)
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info())
+    coordinator = _coordinator(hass, {MAC: conn}, descriptions=descriptions)
+
+    with patch.object(descriptions, "async_remember") as remember:
+        await coordinator._async_update_data()
+
+    remember.assert_not_called()
+
+
+async def test_the_hardware_strings_reach_the_registry_device(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """`device_info` is only read at registration, so the device is updated in place."""
+    from homeassistant.helpers import device_registry
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id="u")
+    entry.add_to_hass(hass)
+    registry = device_registry.async_get(hass)
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC.lower())},
+        model="Protocol 5.3",
+    )
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info())
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    assert device is not None
+    assert device.model == "SN534-4P-T78-BELL"
+    assert device.hw_version == "1.7"
+    assert device.sw_version == "6.5.20.24121101"
+
+
+async def test_a_field_the_lock_leaves_out_keeps_what_the_device_had(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """The protocol version is worth more on the device than an empty model."""
+    from homeassistant.helpers import device_registry
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id="u")
+    entry.add_to_hass(hass)
+    registry = device_registry.async_get(hass)
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC.lower())},
+        model="Protocol 5.3",
+    )
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info(model=None))
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    assert device is not None
+    assert device.model == "Protocol 5.3"
+    assert device.sw_version == "6.5.20.24121101"
+
+
+async def test_a_lock_with_no_registry_device_is_still_remembered(hass) -> None:
+    """Nothing to stamp yet — the description still has to survive to setup."""
+    conn = _mock_connection()
+    conn.async_get_device_info = AsyncMock(return_value=_device_info())
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    assert coordinator.async_device_description(MAC) == DESCRIPTION
