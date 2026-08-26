@@ -140,6 +140,11 @@
       "last_seen": {
         "name": "Visto por último"
       }
+    },
+    "switch": {
+      "sound": {
+        "name": "Som"
+      }
     }
   }
 }

@@ -12,7 +12,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/roquerodrigo/ha-ttlock-ble/issues",
   "requirements": [
-    "ttlock-ble==0.2.0"
+    "ttlock-ble==0.2.1"
   ],
   "version": "3.6.1"
 }

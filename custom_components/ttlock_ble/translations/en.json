@@ -140,6 +140,11 @@
       "last_seen": {
         "name": "Last seen"
       }
+    },
+    "switch": {
+      "sound": {
+        "name": "Sound"
+      }
     }
   }
 }

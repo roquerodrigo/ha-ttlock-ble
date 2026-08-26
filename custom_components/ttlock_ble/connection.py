@@ -165,6 +165,10 @@ class TtlockBleConnection:
         """Send an UNLOCK command on the live connection (raises on failure)."""
         await self._async_run_command("unlock")
 
+    async def async_set_lock_sound(self, *, enabled: bool) -> None:
+        """Turn the lock's beep on or off (raises on failure)."""
+        await self._async_run_command("sound_on" if enabled else "sound_off")
+
     async def async_get_operation_log(self) -> list[LogEntry]:
         """
         Fetch operation records from the lock and dispatch the new ones.
@@ -246,7 +250,7 @@ class TtlockBleConnection:
 
     async def _async_run_command(self, action: str) -> None:
         """
-        Acquire the lock, ensure connected, then call `lock`/`unlock`.
+        Acquire the lock, ensure connected, then run one command on it.
 
         Everything that is not already a `TTLockError` is converted into
         one so callers only ever see the integration's own exception
@@ -265,8 +269,10 @@ class TtlockBleConnection:
             try:
                 if action == "lock":
                     await client.lock()
-                else:
+                elif action == "unlock":
                     await client.unlock()
+                else:
+                    await client.set_lock_sound(enabled=action == "sound_on")
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise

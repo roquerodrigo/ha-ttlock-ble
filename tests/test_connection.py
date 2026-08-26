@@ -692,3 +692,33 @@ async def test_the_cursor_is_not_reported_when_nothing_is_new(
     )
     await conn.async_get_operation_log()
     assert remembered == []
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_set_lock_sound_reaches_the_lock(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    enabled,
+) -> None:
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_set_lock_sound(enabled=enabled)
+    mock_ttlock_client.set_lock_sound.assert_awaited_once_with(enabled=enabled)
+
+
+async def test_set_lock_sound_raises_when_out_of_range(
+    hass,
+    sample_virtual_key,
+    mock_ttlock_client,
+) -> None:
+    """The caller has to learn the setting did not change."""
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with (
+        patch(
+            "custom_components.ttlock_ble.connection.async_ble_device_from_address",
+            return_value=None,
+        ),
+        pytest.raises(TTLockError),
+    ):
+        await conn.async_set_lock_sound(enabled=True)

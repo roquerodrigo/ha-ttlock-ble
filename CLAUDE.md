@@ -69,6 +69,7 @@ binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link st
                     (named "Bluetooth connection": a healthy idle lock holds
                     no session, so this being off says nothing about reach)
 event.py         → EventEntity that surfaces decoded LogEntry records
+switch.py        → the lock's beep; assumed state, admin keys only
 record_store.py  → persists the operation-log cursor per lock, so a
                     restart resumes instead of re-seeding
 ```
@@ -165,6 +166,10 @@ The diagnostics dump carries the last advertisement per lock, raw bytes included
 ### Event entity
 
 `event.py` republishes decoded `LogEntry` records. Every `LogOperate` the SDK knows is accounted for: the four buckets plus `UNBUCKETED_RECORD_TYPES`, an explicit list of records no bucket describes honestly (storage full, reboot, `illegal_unlock`, door left open, a two-factor verification step). A test asserts the union covers the enum, so a record type added to the SDK later fails the suite instead of quietly becoming `other`. Note that an auto-lock produces no record at all — the firmware writes none — which is why the advertisement channel is the only way to see one. The SDK carries keypad codes, card numbers, fingerprint ids and fob MACs in one `password` field; only the first are secret, so `PASSCODE_RECORD_TYPES` lists the record types whose value is a working door code and those never reach an event attribute. An attribute lands in the recorder database and is readable through the API by any user, admin or not.
+
+### Sound switch
+
+`switch.py` toggles the lock's keypad/lock beep. Two constraints shape it. It is `assumed_state`, because the firmware has no opcode reporting the setting back — neither a query nor the advertisement carries it — so the entity shows the last value it sent, which stops being true the moment the official app changes it; HA renders that as two buttons rather than one toggle, which is the honest presentation. And it is only created for a key that is both `is_admin()` and carries an `adminPs`: the firmware gates the command behind CHECK_ADMIN, and a manual-key entry usually has neither, where the entity could only ever fail.
 
 ### Diagnostics
 
