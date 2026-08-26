@@ -96,16 +96,12 @@
     "step": {
       "init": {
         "title": "Opções do TTLock BLE",
-        "description": "Ajuste polling e outros comportamentos desta entrada.",
+        "description": "Comportamento desta entrada.",
         "data": {
-          "scan_interval": "Intervalo de polling (segundos)",
-          "reconnect_interval": "Intervalo de reconexão (segundos)",
           "permanent_connection": "Conexão permanente"
         },
         "data_description": {
-          "scan_interval": "Com que frequência o estado é lido por uma sessão BLE. Anúncios adiam a próxima leitura, então uma fechadura ao alcance raramente é consultada.",
-          "reconnect_interval": "Quanto tempo esperar depois que a fechadura derruba a sessão BLE antes de reconectar.",
-          "permanent_connection": "Reconecta imediatamente após cada queda, mantendo a sessão sempre aberta. Ignora o intervalo de reconexão e aumenta o consumo de bateria da fechadura."
+          "permanent_connection": "Mantém uma sessão BLE aberta e a reabre assim que ela cai. Desligada, a fechadura só é conectada para executar um comando ou para ler registros que ela própria anuncia ter; estado e bateria vêm dos anúncios, que não custam sessão nenhuma. Ligada, os comandos respondem na hora, ao custo da bateria da fechadura."
         }
       }
     }

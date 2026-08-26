@@ -40,14 +40,12 @@ class TtlockBleAdvertisementTracker:
     once the lock has dropped the connection it pushes events on, which
     it does within seconds of going idle.
 
-    An advertisement that decodes into a state also postpones the next
-    poll: `async_set_updated_data` reschedules the coordinator, so a lock
-    that keeps advertising is never connected to just to be read.
-
-    A dormant lock advertises without a usable bolt position, so those
-    frames only carry battery. While no state is known at all they still
-    fall through to the bootstrap poll below, same as a payload that does
-    not decode.
+    Nothing here opens a session, and nothing falls back to one. A
+    dormant lock advertises without a usable bolt position, so those
+    frames carry only battery and the entity keeps reporting whatever
+    was last known — `unknown`, if the lock has not been awake since
+    Home Assistant started. That is the honest answer: the bolt position
+    is not something anyone knows until the lock says so.
     """
 
     def __init__(
@@ -79,23 +77,19 @@ class TtlockBleAdvertisementTracker:
         service_info: BluetoothServiceInfoBleak,
         _change: BluetoothChange,
     ) -> None:
-        """Adopt the advertised state, or fall back to a poll when it can't be read."""
+        """Publish whatever the advertisement carries, and nothing more."""
         advertisement = self._decode(mac, service_info)
         if advertisement is not None:
             self._coordinator.async_apply_advertisement(mac, advertisement)
-            if advertisement.lock_state is not None:
-                return
-        if self._coordinator.async_has_state(mac):
             return
         LOGGER.debug(
-            "No state in the advertisement for %s, polling instead (%s)",
+            "No state in the advertisement for %s (%s)",
             mac,
             {
                 company_id: payload.hex()
                 for company_id, payload in service_info.manufacturer_data.items()
             },
         )
-        self._hass.async_create_task(self._coordinator.async_request_refresh())
 
     def _decode(
         self,

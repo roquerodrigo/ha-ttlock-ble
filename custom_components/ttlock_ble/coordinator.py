@@ -1,16 +1,15 @@
 """
 DataUpdateCoordinator for ttlock_ble.
 
-Reads lock state through the per-lock `TtlockBleConnection` (which keeps
-a persistent BLE session and pushes events out-of-band). The
-coordinator only owns the periodic state refresh; it does not open BLE
-connections itself.
-
-State also arrives without any poll: `async_apply_advertisement`
+State arrives without opening anything: `async_apply_advertisement`
 publishes what `TtlockBleAdvertisementTracker` decodes from the lock's
-advertisements, which is the only channel that reports an auto-lock.
-The same advertisements announce that the lock has unsynced operation
-records, and that flag is what schedules an out-of-band log read.
+advertisements, which is also the only channel that reports an
+auto-lock. The same advertisements announce that the lock holds
+unsynced operation records, and that flag is what schedules a log read.
+
+There is no polling interval. A refresh happens only when something
+asks for one — today that is the lock entity, right after a command,
+while the session it opened is still up.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from ttlock_ble import LockState
 from .const import DOMAIN, LOGGER
 
 if TYPE_CHECKING:
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
@@ -53,23 +52,26 @@ LOG_RETRY_COOLDOWN_SECONDS = 300.0
 
 
 class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinatorData"]):
-    """Periodically poll BLE state via each lock's persistent connection."""
+    """Publish lock state, from advertisements and from on-demand reads."""
 
     config_entry: TtlockBleConfigEntry
 
     def __init__(
         self,
         hass: HomeAssistant,
-        scan_interval: timedelta,
         connections: dict[str, TtlockBleConnection],
     ) -> None:
-        """Pin the polling interval and the per-MAC connection map."""
-        super().__init__(
-            hass=hass,
-            logger=LOGGER,
-            name=DOMAIN,
-            update_interval=scan_interval,
-        )
+        """
+        Pin the per-MAC connection map. No polling interval on purpose.
+
+        `update_interval` is left unset: a refresh opens a BLE session,
+        and everything a poll used to provide now arrives without one.
+        State and battery come from the lock's advertisements, and the
+        operation log is read when the lock itself says it has records.
+        A refresh still runs on demand, right after a command, while the
+        session that carried the command is open anyway.
+        """
+        super().__init__(hass=hass, logger=LOGGER, name=DOMAIN)
         self._connections = connections
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}

@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import asyncio
-
     from homeassistant.core import CALLBACK_TYPE
 
     from ttlock_ble import VirtualKey
@@ -26,4 +24,3 @@ class TtlockBleData:
     connections: dict[str, TtlockBleConnection]
     coordinator: TtlockBleDataUpdateCoordinator
     bluetooth_unsubs: list[CALLBACK_TYPE]
-    first_refresh: asyncio.Task[None] | None = None

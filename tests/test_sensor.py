@@ -149,14 +149,12 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
     sample_virtual_key,
 ) -> None:
     """An empty coordinator snapshot leaves `_attr_native_value` untouched."""
-    from datetime import timedelta
 
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
     from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
 
     coordinator = TtlockBleDataUpdateCoordinator(
         hass,
-        timedelta(seconds=30),
         {},
     )
     coordinator.data = {}

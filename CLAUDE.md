@@ -55,12 +55,12 @@ manual_key.py    → builds a VirtualKey from a hand-entered key, for locks
                     that were never in a TTLock account
 __init__.py      → instantiates one TtlockBleConnection per lock and a
                     DataUpdateCoordinator, performs the first refresh
-connection.py    → owns the long-lived BLE session, reconnect loop,
-                    cooldown, and push-event dispatch
+connection.py    → connects on demand; holds a session open only when the
+                    permanent connection is on, and dispatches push events
 advertisement.py → decodes lock state + battery from the advertisements
                     HA's bluetooth manager already receives, no connection
-coordinator.py   → polls every scan_interval seconds via each connection,
-                    and publishes the advertised state as it arrives
+coordinator.py   → publishes the advertised state as it arrives; no polling
+                    interval, a refresh only on demand
 lock.py          → LockEntity backed by the BLE connection
 sensor.py        → BatterySensor backed by the same poll + push events, and
                     a LastSeenSensor reading the bluetooth manager's own
@@ -107,7 +107,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 ### Options flow
 
-`options_flow.py` exposes `scan_interval` (seconds; min 60, default 3600), `reconnect_interval` (seconds; min 10, default 300) and `permanent_connection` (bool; default off — reconnect immediately after every drop, overriding `reconnect_interval`). Changing any of them triggers `async_reload_entry`, which re-instantiates the coordinator with the new `update_interval` and the connections with the new reconnect cooldown.
+`options_flow.py` exposes a single option, `permanent_connection` (bool; default off). Changing it triggers `async_reload_entry`. There is no polling interval and no reconnect pacing to configure: nothing connects unless a command needs the lock, the lock advertises records worth reading, or this option asks for a session to be held open.
 
 ### API client
 
@@ -127,7 +127,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 - A long-lived `TTLockClient` (the SDK).
 - An `asyncio.Lock` serializing query/lock/unlock commands.
 - A reconnect maintain loop driven by an `asyncio.Event` the SDK's `disconnected_callback` toggles.
-- A post-drop cooldown: after any disconnect, sleeps the `reconnect_cooldown_seconds` the constructor received (from the `reconnect_interval` option; `0` when `permanent_connection` is on) before reconnecting — no immediate retry unless configured so. **The cooldown paces that loop only.** It used to also veto `async_query_state`, and since the lock drops every idle session within seconds the loop re-armed it constantly, so the configured `scan_interval` never actually ran a poll (issue #42). Reads are rate-limited by their own callers instead.
+- A maintain loop that only runs for `permanent_connection`, reconnecting the instant the session drops. The firmware drops an idle session within seconds, so that loop is a reconnect storm by design — the lock's battery is the whole trade the option asks the user to accept. Without the option nothing is held open and nothing reconnects.
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe. The BLE drop is announced from bleak's own callback, not from the teardown that follows the cooldown, so the connectivity sensor does not claim a live link for five minutes after the link died.
 - A retry timer for the operation log: a read that did not reach the lock leaves the advertised records flag up, and the lock then repeats the very same payload, which HA's bluetooth manager does not forward a second time. Waiting for another advertisement to retry therefore waits forever, so `coordinator.py` arms a timer instead and cancels it when an advertisement reports the flag down.
 - Backlog seeding: on a lock with no restored cursor, the first operation-log fetch that actually reaches it only fills `_seen_records` and dispatches nothing. The lock returns everything unsynced since its last cursor sync, and replaying that history as live events would fire automations for unlocks from days ago. Tying it to a *successful* fetch matters — a lock out of range at setup must not spend its seeding pass on a poll that read nothing. `record_store.py` persists the cursor, so the pass runs once per lock rather than once per HA start; keying it to the start is what made a restart swallow whatever happened at the door just after it.
@@ -146,9 +146,9 @@ This is the **only** channel that reports an auto-lock: the firmware writes no o
 Two details are load-bearing:
 
 - The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
-- An advertisement that decodes reaches the entities via `async_set_updated_data`, which also **reschedules** the next poll — a lock that keeps advertising is never connected to just to be read.
+- An advertisement that decodes reaches the entities via `async_set_updated_data`. Nothing here opens a session and nothing falls back to one.
 
-An advertisement we cannot decode falls back to a coordinator refresh, but only while no state is known yet: that bootstrap is what makes the entity available seconds after HA boots instead of after a full `scan_interval`. Refreshing on *every* advertisement (the old behaviour) is what made the cooldown look necessary in the first place.
+An advertisement we cannot decode, or one from a dormant lock, publishes nothing and asks for nothing. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
 
 The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
 

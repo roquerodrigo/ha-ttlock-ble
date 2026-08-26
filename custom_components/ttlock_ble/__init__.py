@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, cast
 
-from homeassistant.const import CONF_SCAN_INTERVAL, Platform
+from homeassistant.const import Platform
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import (
     async_entries_for_config_entry,
@@ -20,14 +19,7 @@ from ttlock_ble import VirtualKey
 
 from .advertisement import TtlockBleAdvertisementTracker
 from .connection import TtlockBleConnection
-from .const import (
-    CONF_PERMANENT_CONNECTION,
-    CONF_RECONNECT_INTERVAL,
-    DEFAULT_RECONNECT_INTERVAL_SECONDS,
-    DEFAULT_SCAN_INTERVAL_SECONDS,
-    DOMAIN,
-    LOGGER,
-)
+from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBleLogCursor
 from .record_store import TtlockBleRecordStore
@@ -108,23 +100,12 @@ async def async_setup_entry(
     virtual_keys = [VirtualKey.from_dict(dict(k)) for k in stored_keys]
 
     permanent_connection = bool(entry.options.get(CONF_PERMANENT_CONNECTION, False))
-    reconnect_cooldown_seconds: float = (
-        0.0
-        if permanent_connection
-        else float(
-            entry.options.get(
-                CONF_RECONNECT_INTERVAL,
-                DEFAULT_RECONNECT_INTERVAL_SECONDS,
-            ),
-        )
-    )
     record_store = TtlockBleRecordStore(hass)
     await record_store.async_load()
     connections: dict[str, TtlockBleConnection] = {
         key.lockMac: TtlockBleConnection(
             hass,
             key,
-            reconnect_cooldown_seconds=reconnect_cooldown_seconds,
             log_cursor=TtlockBleLogCursor(
                 records=record_store.seen(key.lockMac),
                 seeded=record_store.is_seeded(key.lockMac),
@@ -133,17 +114,14 @@ async def async_setup_entry(
         )
         for key in virtual_keys
     }
-    for connection in connections.values():
-        await connection.async_start()
+    # Only the permanent connection holds a session open. Otherwise the
+    # lock is left alone until a command needs it, or until it advertises
+    # that it has records worth reading.
+    if permanent_connection:
+        for connection in connections.values():
+            await connection.async_start()
 
-    scan_interval_seconds: int = int(
-        entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS),
-    )
-    coordinator = TtlockBleDataUpdateCoordinator(
-        hass=hass,
-        scan_interval=timedelta(seconds=scan_interval_seconds),
-        connections=connections,
-    )
+    coordinator = TtlockBleDataUpdateCoordinator(hass=hass, connections=connections)
 
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
         virtual_keys,
@@ -166,23 +144,15 @@ async def async_setup_entry(
     entry.async_on_unload(_stop_connections)
     entry.async_on_unload(_stop_advertisement_tracking)
 
-    # Trigger the first state refresh without awaiting it, so the config entry
-    # can finish loading while connections settle. The task is still tracked by
-    # Home Assistant and will be awaited by async_block_till_done in tests and
-    # by the startup wrap-up.
-    first_refresh = entry.async_create_task(
-        hass,
-        coordinator.async_refresh(),
-        name=f"{DOMAIN}.first_refresh",
-    )
-
+    # No refresh at setup: it would open a BLE session for a reading the
+    # lock hands out for free the next time it advertises awake. Until
+    # then the entities report unknown, which is what is actually known.
     entry.runtime_data = TtlockBleData(
         keys=stored_keys,
         virtual_keys=virtual_keys,
         connections=connections,
         coordinator=coordinator,
         bluetooth_unsubs=bluetooth_unsubs,
-        first_refresh=first_refresh,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -201,8 +171,6 @@ async def async_unload_entry(
     registered on the entry at setup time instead, so it also runs when
     setup itself fails part-way through.
     """
-    if entry.runtime_data.first_refresh is not None:
-        entry.runtime_data.first_refresh.cancel()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

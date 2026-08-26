@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import timedelta
-
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, format_mac
 
 from custom_components.ttlock_ble.const import DOMAIN, MANUFACTURER
@@ -12,7 +10,6 @@ from custom_components.ttlock_ble.entity import TtlockBleEntity
 def _entity(hass, key) -> TtlockBleEntity:
     coordinator = TtlockBleDataUpdateCoordinator(
         hass=hass,
-        scan_interval=timedelta(seconds=60),
         connections={},
     )
     return TtlockBleEntity(coordinator, key)

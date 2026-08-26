@@ -30,7 +30,8 @@ async def test_lock_state_unlocked(
 
     from custom_components.ttlock_ble.const import DOMAIN
 
-    mock_ttlock_connection.async_query_state = AsyncMock(return_value=(1, 80))
+    from .conftest import lock_advertisement
+
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -42,6 +43,11 @@ async def test_lock_state_unlocked(
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data.coordinator.async_apply_advertisement(
+        sample_stored_key["lockMac"],
+        lock_advertisement(locked=False, battery=80),
+    )
     await hass.async_block_till_done()
     states = hass.states.async_all("lock")
     assert states[0].state == "unlocked"
@@ -164,8 +170,9 @@ async def test_async_lock_sets_optimistic_state(
 
     from custom_components.ttlock_ble.const import DOMAIN
 
-    # Start with the coordinator reporting "unlocked", then issue lock and check.
-    mock_ttlock_connection.async_query_state = AsyncMock(return_value=(1, 80))
+    from .conftest import lock_advertisement
+
+    # Start from an advertisement reporting "unlocked", then issue lock and check.
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={"username": "u", "password": "p", "keys": [sample_stored_key]},
@@ -173,6 +180,11 @@ async def test_async_lock_sets_optimistic_state(
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data.coordinator.async_apply_advertisement(
+        sample_stored_key["lockMac"],
+        lock_advertisement(locked=False, battery=80),
+    )
     await hass.async_block_till_done()
     state = hass.states.async_all("lock")[0]
     assert state.state == "unlocked"
@@ -646,7 +658,6 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
     sample_virtual_key,
 ) -> None:
     """An empty coordinator snapshot leaves `_attr_is_locked` untouched."""
-    from datetime import timedelta
     from unittest.mock import MagicMock
 
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
@@ -654,7 +665,6 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
 
     coordinator = TtlockBleDataUpdateCoordinator(
         hass,
-        timedelta(seconds=30),
         {},
     )
     coordinator.data = {}

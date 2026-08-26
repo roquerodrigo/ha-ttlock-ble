@@ -83,12 +83,13 @@ async def test_payload_for_another_address_is_ignored(tracker, hass) -> None:
     coordinator.async_apply_advertisement.assert_not_called()
 
 
-async def test_undecodable_advertisement_falls_back_to_a_poll(tracker, hass) -> None:
+async def test_undecodable_advertisement_opens_nothing(tracker, hass) -> None:
+    """A payload we cannot read is not a reason to go and ask the lock."""
     instance, coordinator = tracker
     instance._async_on_advertisement(MAC, service_info({0x004C: b"\x02\x15"}), None)
     await hass.async_block_till_done()
     coordinator.async_apply_advertisement.assert_not_called()
-    coordinator.async_request_refresh.assert_awaited_once()
+    coordinator.async_request_refresh.assert_not_awaited()
 
 
 async def test_undecodable_advertisement_does_not_poll_once_state_is_known(
@@ -113,12 +114,12 @@ async def test_dormant_advertisement_still_reaches_the_coordinator(tracker) -> N
     assert advertisement.battery == 77
 
 
-async def test_dormant_advertisement_falls_back_to_a_poll(tracker, hass) -> None:
-    """A frame with no bolt position bootstraps the same way an undecodable one does."""
+async def test_dormant_advertisement_opens_nothing(tracker, hass) -> None:
+    """A dormant lock has no bolt position to give and no session to spare."""
     instance, coordinator = tracker
     instance._async_on_advertisement(MAC, service_info(manufacturer_data(0x10)), None)
     await hass.async_block_till_done()
-    coordinator.async_request_refresh.assert_awaited_once()
+    coordinator.async_request_refresh.assert_not_awaited()
 
 
 async def test_dormant_advertisement_does_not_poll_once_state_is_known(

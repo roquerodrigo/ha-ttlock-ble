@@ -266,97 +266,26 @@ async def test_maintain_loop_logs_unexpected_error(
     assert mock_ble_resolver.call_count >= 1
 
 
-async def test_query_state_reads_while_the_loop_is_cooling_down(
+async def test_query_state_reads_without_a_maintain_loop(
     hass,
     sample_virtual_key,
     mock_ble_resolver,
     mock_ttlock_client,
 ) -> None:
-    """A poll still reaches the lock while the maintain loop waits out a drop.
-
-    Regression: the post-drop cooldown used to short-circuit every
-    coordinator poll, and the loop re-armed it on each drop, so the
-    configured `scan_interval` was silently never honoured.
-    """
+    """Without the permanent connection nothing is running; a read still connects."""
     mock_ttlock_client.query_state = AsyncMock(return_value=(0, 90))
-    conn = TtlockBleConnection(
-        hass,
-        sample_virtual_key,
-        reconnect_cooldown_seconds=30.0,
-    )
-    with patch.multiple(
-        "custom_components.ttlock_ble.connection",
-        RECONNECT_INITIAL_BACKOFF=0.005,
-        RECONNECT_MAX_BACKOFF=0.01,
-    ):
-        await conn.async_start()
-        for _ in range(20):
-            await asyncio.sleep(0.005)
-            if mock_ttlock_client.connect.await_count >= 1:
-                break
-        conn._on_disconnected(mock_ttlock_client)
-        await asyncio.sleep(0.02)
-        assert await conn.async_query_state() == (0, 90)
-        await conn.async_stop()
-
-
-async def test_on_disconnected_wakes_maintain_loop(
-    hass,
-    sample_virtual_key,
-    mock_ble_resolver,
-    mock_ttlock_client,
-) -> None:
     conn = TtlockBleConnection(hass, sample_virtual_key)
-    await conn.async_query_state()
-    # Simulate bleak's disconnected_callback firing.
-    assert not conn._disconnected.is_set()
-    conn._on_disconnected(mock_ttlock_client)
-    assert conn._disconnected.is_set()
+    assert await conn.async_query_state() == (0, 90)
 
 
-async def test_maintain_loop_waits_before_reconnecting_after_a_drop(
+async def test_the_maintain_loop_reconnects_straight_after_a_drop(
     hass,
     sample_virtual_key,
     mock_ble_resolver,
     mock_ttlock_client,
 ) -> None:
-    """After a disconnect the loop sits out the cooldown instead of retrying."""
-    conn = TtlockBleConnection(
-        hass,
-        sample_virtual_key,
-        reconnect_cooldown_seconds=30.0,
-    )
-    with patch.multiple(
-        "custom_components.ttlock_ble.connection",
-        RECONNECT_INITIAL_BACKOFF=0.005,
-        RECONNECT_MAX_BACKOFF=0.01,
-    ):
-        await conn.async_start()
-        # Let the loop connect and arm `_disconnected.wait()`.
-        for _ in range(20):
-            await asyncio.sleep(0.005)
-            if mock_ttlock_client.connect.await_count >= 1:
-                break
-        connects_before_drop = mock_ttlock_client.connect.await_count
-        mock_ttlock_client.is_connected = False
-        conn._on_disconnected(mock_ttlock_client)
-        await asyncio.sleep(0.05)
-        assert mock_ttlock_client.connect.await_count == connects_before_drop
-        await conn.async_stop()
-
-
-async def test_zero_cooldown_reconnects_immediately_after_a_drop(
-    hass,
-    sample_virtual_key,
-    mock_ble_resolver,
-    mock_ttlock_client,
-) -> None:
-    """A zero cooldown (permanent connection) skips the post-drop wait."""
-    conn = TtlockBleConnection(
-        hass,
-        sample_virtual_key,
-        reconnect_cooldown_seconds=0.0,
-    )
+    """That storm is the permanent connection: the lock drops idle sessions fast."""
+    conn = TtlockBleConnection(hass, sample_virtual_key)
     with patch.multiple(
         "custom_components.ttlock_ble.connection",
         RECONNECT_INITIAL_BACKOFF=0.005,

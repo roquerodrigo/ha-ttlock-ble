@@ -191,4 +191,31 @@ async def setup_integration(
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    # Setup opens nothing, so the entities start out with no reading. The
+    # steady state most tests care about is the one after the lock has been
+    # heard, which is what an advertisement produces.
+    entry.runtime_data.coordinator.async_apply_advertisement(
+        sample_stored_key["lockMac"],
+        lock_advertisement(locked=True, battery=80),
+    )
+    await hass.async_block_till_done()
     return entry
+
+
+def lock_advertisement(*, locked: bool, battery: int, dormant: bool = False):
+    """Build a decoded advertisement the way the SDK hands one over."""
+    from ttlock_ble import LockAdvertisement, LockState
+
+    return LockAdvertisement(
+        protocol_type=5,
+        protocol_version=3,
+        scene=2,
+        lock_state=None
+        if dormant
+        else (LockState.LOCKED if locked else LockState.UNLOCKED),
+        has_new_records=False,
+        is_setting_mode=False,
+        is_dormant=dormant,
+        battery=battery,
+        lock_mac="AA:BB:CC:DD:EE:FF",
+    )

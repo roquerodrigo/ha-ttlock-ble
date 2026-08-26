@@ -34,7 +34,6 @@ def _mock_connection(*, query_return=(0, 80)) -> MagicMock:
 def _coordinator(hass, connections):
     return TtlockBleDataUpdateCoordinator(
         hass=hass,
-        scan_interval=timedelta(seconds=60),
         connections=connections,
     )
 
@@ -250,7 +249,6 @@ async def test_advertised_records_read_once_per_cooldown(hass) -> None:
 
 async def test_unreachable_lock_is_retried_after_the_cooldown(hass) -> None:
     """An unreachable lock reports nothing rather than raising, keeping the flag up."""
-    from datetime import timedelta
 
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -329,7 +327,6 @@ async def test_a_pending_read_is_retried_on_a_timer(hass) -> None:
     So a read that failed can never be retried by the next advertisement —
     only a timer gets us back to it.
     """
-    from datetime import timedelta
 
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -361,8 +358,6 @@ async def test_the_retry_stops_once_the_flag_clears(hass) -> None:
     await hass.async_block_till_done()
     coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=False))
     await hass.async_block_till_done()
-
-    from datetime import timedelta
 
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
