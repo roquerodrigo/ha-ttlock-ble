@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -97,7 +98,13 @@ async def test_coordinator_polls_every_connection_once(
         conn.async_query_state.assert_awaited_once()
 
 
-def _advertisement(*, unlocked: bool, battery: int = 66, dormant: bool = False):
+def _advertisement(
+    *,
+    unlocked: bool,
+    battery: int = 66,
+    dormant: bool = False,
+    records: bool = False,
+):
     from ttlock_ble import LockAdvertisement, LockState
 
     if dormant:
@@ -109,12 +116,21 @@ def _advertisement(*, unlocked: bool, battery: int = 66, dormant: bool = False):
         protocol_version=3,
         scene=2,
         lock_state=lock_state,
-        has_new_records=False,
+        has_new_records=records,
         is_setting_mode=False,
         is_dormant=dormant,
         battery=battery,
         lock_mac="AA:BB:CC:DD:EE:FF",
     )
+
+
+def _task_entry(hass) -> MagicMock:
+    """A config entry whose `async_create_task` really schedules the coroutine."""
+    entry = MagicMock()
+    entry.async_create_task = lambda _hass, coro, name=None: hass.async_create_task(  # noqa: ARG005
+        coro,
+    )
+    return entry
 
 
 async def test_apply_advertisement_publishes_state_without_polling(
@@ -199,3 +215,103 @@ async def test_poll_that_raises_blanks_only_that_lock(hass, sample_virtual_key) 
     data = await coordinator._async_update_data()
     assert data[sample_virtual_key.lockMac] == {"locked": None, "battery_level": None}
     assert data[other]["locked"] is False
+
+
+MAC = "AA:BB:CC:DD:EE:FF"
+
+
+def _log_coordinator(hass, conn):
+    coordinator = _coordinator(hass, {MAC: conn})
+    coordinator.config_entry = _task_entry(hass)
+    return coordinator
+
+
+async def test_advertised_records_trigger_a_log_read(hass) -> None:
+    """A keypad unlock reaches the event entity without waiting for the poll."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    conn.async_get_operation_log.assert_awaited_once()
+
+
+async def test_advertised_records_read_once_per_cooldown(hass) -> None:
+    """The flag stays up until the cursor syncs; reads must be spaced, not repeated."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    for _ in range(3):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, records=True)
+        )
+        await hass.async_block_till_done()
+    conn.async_get_operation_log.assert_awaited_once()
+
+
+async def test_unreachable_lock_is_retried_after_the_cooldown(hass) -> None:
+    """An unreachable lock reports nothing rather than raising, keeping the flag up."""
+    conn = _mock_connection()
+    conn.async_get_operation_log = AsyncMock(return_value=[])
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    coordinator._log_retry_after[MAC] = time.monotonic() - 1
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    assert conn.async_get_operation_log.await_count == 2
+
+
+async def test_flag_going_down_clears_the_cooldown(hass) -> None:
+    """A record written right after a successful read must not wait one out."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    for records in (True, False, True):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, records=records)
+        )
+        await hass.async_block_till_done()
+    assert conn.async_get_operation_log.await_count == 2
+
+
+async def test_advertisement_without_records_reads_nothing(hass) -> None:
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(MAC, _advertisement(unlocked=True))
+    await hass.async_block_till_done()
+    conn.async_get_operation_log.assert_not_awaited()
+
+
+async def test_dormant_advertisement_still_reads_the_log(hass) -> None:
+    """Anything done at the door is recorded, then the lock goes back to sleep."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, dormant=True, records=True)
+    )
+    await hass.async_block_till_done()
+    conn.async_get_operation_log.assert_awaited_once()
+
+
+async def test_advertised_log_read_failure_is_contained(hass) -> None:
+    conn = _mock_connection()
+    conn.async_get_operation_log = AsyncMock(side_effect=RuntimeError("link dropped"))
+    coordinator = _log_coordinator(hass, conn)
+    coordinator.async_apply_advertisement(
+        MAC, _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
+    conn.async_get_operation_log.assert_awaited_once()
+
+
+async def test_advertised_records_for_an_unknown_lock_are_ignored(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    coordinator.config_entry = _task_entry(hass)
+    coordinator.async_apply_advertisement(
+        "11:22:33:44:55:66", _advertisement(unlocked=False, records=True)
+    )
+    await hass.async_block_till_done()
