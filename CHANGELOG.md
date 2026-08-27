@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.7.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.6.1...v3.7.0) (2026-08-27)
+
+
+### Features
+
+* **advertisement:** read the bolt position while none is known ([c0a5b02](https://github.com/roquerodrigo/ha-ttlock-ble/commit/c0a5b02ebda2cfff4bf15df99611425558d75a99))
+* **advertisement:** read the operation log while records are pending ([14fca8d](https://github.com/roquerodrigo/ha-ttlock-ble/commit/14fca8d542b9eeb82d2115f1d679144c596d49d2))
+* **device:** show the model, hardware and firmware the lock reports ([f633354](https://github.com/roquerodrigo/ha-ttlock-ble/commit/f6333545186fe6b7f52da2848e34bcf898e013fc))
+* **event:** classify the record types that fell through to "other" ([830433f](https://github.com/roquerodrigo/ha-ttlock-ble/commit/830433fe31337d9f972aabeb30198f0911fd2353))
+* **sensor:** report when the lock was last heard from ([46e480c](https://github.com/roquerodrigo/ha-ttlock-ble/commit/46e480cb5354b9e891ea59595a69624844a57248))
+* **switch:** expose the lock's beep ([f4f7daa](https://github.com/roquerodrigo/ha-ttlock-ble/commit/f4f7daadffc1ad8ccb7c9e8b022890c1f551b6c0))
+
+
+### Bug Fixes
+
+* cancel the coordinator's timers and stop blanking the device ([b75a0da](https://github.com/roquerodrigo/ha-ttlock-ble/commit/b75a0dafec79e04fbef185b26c26ed8d2412dfa3))
+* **event:** persist the operation-log cursor across restarts ([9104767](https://github.com/roquerodrigo/ha-ttlock-ble/commit/9104767bf096687bf0f5164f232c0bca9cf795b3))
+* **event:** retry a pending operation-log read on a timer ([a60c7f8](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a60c7f85a899f7c4aac327a5b074fb6ffbad7455))
+
+
+### Code Refactoring
+
+* connect only on demand, and drop the obsolete options ([3205d36](https://github.com/roquerodrigo/ha-ttlock-ble/commit/3205d365b4575776a79cf81bc8daccd840915051))
+
 ## [3.6.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.6.0...v3.6.1) (2026-08-25)
 
 
