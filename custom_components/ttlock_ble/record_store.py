@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
 
+from homeassistant.helpers.singleton import singleton
 from homeassistant.helpers.storage import Store
+from homeassistant.util.hass_dict import HassKey
 
 from .const import DOMAIN
 
@@ -89,3 +91,21 @@ class TtlockBleRecordStore:
     def _snapshot(self) -> dict[str, TtlockBleStoredCursor]:
         """Render the in-memory cursors as the JSON the store writes."""
         return dict(self._cursors)
+
+
+STORE_KEY: HassKey[TtlockBleRecordStore] = HassKey(f"{DOMAIN}_record_store")
+
+
+@singleton(STORE_KEY, async_=True)
+async def async_get_record_store(hass: HomeAssistant) -> TtlockBleRecordStore:
+    """
+    Return the one store this Home Assistant instance shares.
+
+    The file is keyed by MAC and holds every lock of every entry, so
+    one instance per entry means the last one to write replaces what the
+    others had loaded, and a lock added to a second entry can lose the
+    cursor another entry moved in the meantime.
+    """
+    store = TtlockBleRecordStore(hass)
+    await store.async_load()
+    return store

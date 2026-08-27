@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from bleak import BleakError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from ttlock_ble import DeviceInfo, LockEvent, TTLockError
 
@@ -758,3 +759,33 @@ async def test_device_info_that_breaks_the_link_costs_nothing_else(
     mock_ttlock_client.get_device_info = AsyncMock(side_effect=TTLockError("link down"))
     conn = TtlockBleConnection(hass, sample_virtual_key)
     assert await conn.async_get_device_info() is None
+
+
+async def test_a_bleak_error_from_connect_is_not_left_raw(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """The SDK leaves `start_notify` unwrapped, so bleak's own error can escape."""
+    mock_ttlock_client.connect = AsyncMock(side_effect=BleakError("link dropped"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    with pytest.raises(TTLockError):
+        await conn.async_unlock()
+    assert await conn.async_query_state() is None
+
+
+async def test_a_half_open_session_is_closed_when_connect_fails(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """The lock has one central slot; a session nobody owns has to go back."""
+    mock_ttlock_client.connect = AsyncMock(side_effect=BleakError("notify failed"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    assert await conn.async_query_state() is None
+
+    mock_ttlock_client.disconnect.assert_awaited()

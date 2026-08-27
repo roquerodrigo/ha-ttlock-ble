@@ -93,6 +93,27 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
         self._state_probes: dict[str, CALLBACK_TYPE] = {}
 
+    async def async_shutdown(self) -> None:
+        """
+        Cancel the pending timers along with the coordinator itself.
+
+        Neither timer is cancelled by anything else, and the log retry
+        re-arms itself while the lock still advertises unsynced records
+        - a flag only an advertisement lowers, and the subscription that
+        would deliver one is gone by the time an entry unloads. Left
+        armed, the retry outlives the entry it belongs to, keeps a
+        stopped connection and the whole entry alive with it, and logs
+        against a lock the user may have removed, every cooldown, for
+        the rest of the Home Assistant run.
+        """
+        for cancel in self._log_retries.values():
+            cancel()
+        self._log_retries.clear()
+        for cancel in self._state_probes.values():
+            cancel()
+        self._state_probes.clear()
+        await super().async_shutdown()
+
     @property
     def connections(self) -> dict[str, TtlockBleConnection]:
         """Return the per-MAC connection map this coordinator polls."""

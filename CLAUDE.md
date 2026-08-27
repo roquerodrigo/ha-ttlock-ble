@@ -82,6 +82,8 @@ device_description_store.py
 
 `data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs, first_refresh)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
+The two stores are the deliberate exception: `record_store.py` and `device_description_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
+
 ### Config flow surface
 
 `config_flow.py` implements the user-facing steps, sharing one module-level `_credentials_schema` builder for the credential ones and one `_manual_key_schema` for the manual one:
@@ -136,7 +138,10 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 - A dispatcher forwarder: any push event the SDK emits is fanned out on `ttlock_ble_event_<mac>` so the lock, sensor, and event entities can subscribe. The BLE drop is announced from bleak's own callback, not from the teardown that follows the cooldown, so the connectivity sensor does not claim a live link for five minutes after the link died.
 - A retry timer for the operation log: a read that did not reach the lock leaves the advertised records flag up, and the lock then repeats the very same payload, which HA's bluetooth manager does not forward a second time. Waiting for another advertisement to retry therefore waits forever, so `coordinator.py` arms a timer instead and cancels it when an advertisement reports the flag down.
 - Backlog seeding: on a lock with no restored cursor, the first operation-log fetch that actually reaches it only fills `_seen_records` and dispatches nothing. The lock returns everything unsynced since its last cursor sync, and replaying that history as live events would fire automations for unlocks from days ago. Tying it to a *successful* fetch matters — a lock out of range at setup must not spend its seeding pass on a poll that read nothing. `record_store.py` persists the cursor, so the pass runs once per lock rather than once per HA start; keying it to the start is what made a restart swallow whatever happened at the door just after it.
+- A connect step that catches every exception, not just `TTLockError`: the SDK leaves `start_notify` unwrapped, so bleak's own `BleakError` escaped the wrapper each command path relies on, and the half-open session is closed rather than left to the firmware's idle timeout.
 - A refusal to reconnect after `async_stop`: a late caller would otherwise take the lock's single central slot with no maintain loop left to release it.
+
+`coordinator.py` overrides `async_shutdown` to cancel both timer dicts. Nothing else does, and the log retry re-arms itself while the lock still advertises unsynced records — a flag only an advertisement lowers, and the subscription that would deliver one is gone by the time an entry unloads. Left armed, the retry outlived the entry, kept the coordinator and its connections alive with it, and logged against a lock the user may have removed, every cooldown, for the rest of the run.
 
 ### Last-seen sensor
 
@@ -163,6 +168,7 @@ The diagnostics dump carries the last advertisement per lock, raw bytes included
 
 - **Nothing connects for them.** The read rides on a poll that just reached the lock, in `coordinator.py`'s `_async_describe`. A lock only grants a session while it is awake, and hardware strings are not worth waking one for.
 - **Once per Home Assistant run, not once ever.** The values are static until a firmware upgrade changes them, so the store is what a restart displays, and the first successful poll of each run re-reads and replaces it.
+- **An unknown field is left out of `device_info`, not spelled as `None`.** `DeviceInfo` is a TypedDict, and every key present is written to the registry device — `None` included, since only an absent key means "leave this alone". Spelling out an unknown version blanked what a poll had already stamped and reverted the model to the protocol fallback, on any entity re-registration before the store had an answer.
 - **The registry device is updated in place.** An entity's `device_info` is only read when the entity is registered, so a description learned mid-run would otherwise wait for the next restart to appear. A field the lock did not answer is left untouched rather than blanked — `entity.py` falls back to the key's protocol version for the model, which beats an empty one.
 
 ### Lock entity

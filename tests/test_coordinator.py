@@ -615,3 +615,61 @@ async def test_a_lock_with_no_registry_device_is_still_remembered(hass) -> None:
     await coordinator._async_update_data()
 
     assert coordinator.async_device_description(MAC) == DESCRIPTION
+
+
+async def test_shutdown_cancels_the_pending_log_retry(hass) -> None:
+    """Left armed, the retry re-arms itself for the rest of the HA run."""
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh"):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, records=True)
+        )
+        await hass.async_block_till_done()
+    assert MAC in coordinator._log_retries
+
+    await coordinator.async_shutdown()
+
+    assert coordinator._log_retries == {}
+
+
+async def test_shutdown_cancels_the_pending_state_probe(hass) -> None:
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh"):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, dormant=True)
+        )
+        await hass.async_block_till_done()
+    assert MAC in coordinator._state_probes
+
+    await coordinator.async_shutdown()
+
+    assert coordinator._state_probes == {}
+
+
+async def test_a_cancelled_retry_never_fires_again(hass) -> None:
+    """The unloaded entry must not keep reading a lock it no longer owns."""
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.ttlock_ble.coordinator import LOG_RETRY_COOLDOWN_SECONDS
+
+    conn = _mock_connection()
+    coordinator = _log_coordinator(hass, conn)
+    with patch.object(coordinator, "async_request_refresh"):
+        coordinator.async_apply_advertisement(
+            MAC, _advertisement(unlocked=False, records=True)
+        )
+        await hass.async_block_till_done()
+    await coordinator.async_shutdown()
+    conn.async_get_operation_log.reset_mock()
+
+    async_fire_time_changed(
+        hass,
+        dt_util.utcnow() + timedelta(seconds=LOG_RETRY_COOLDOWN_SECONDS + 1),
+    )
+    await hass.async_block_till_done()
+
+    conn.async_get_operation_log.assert_not_awaited()

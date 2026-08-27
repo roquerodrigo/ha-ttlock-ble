@@ -48,15 +48,24 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
         mac = format_mac(self._key.lockMac)
         description = self.coordinator.async_device_description(self._key.lockMac)
         model = None if description is None else description["model"]
-        return DeviceInfo(
+        device_info = DeviceInfo(
             identifiers={(DOMAIN, mac)},
             connections={(CONNECTION_BLUETOOTH, mac)},
             name=self._key.lockAlias or self._key.lockName or self._key.lockMac,
             manufacturer=MANUFACTURER,
             model=model or self._protocol_model,
-            hw_version=None if description is None else description["hardware_version"],
-            sw_version=None if description is None else description["firmware_version"],
         )
+        if description is None:
+            return device_info
+        # A key present here is written to the registry device, `None`
+        # included, and only a key left out means "leave this alone".
+        # Spelling out an unknown version would blank the one a poll
+        # stamped on the device before this entity was registered.
+        if description["hardware_version"]:
+            device_info["hw_version"] = description["hardware_version"]
+        if description["firmware_version"]:
+            device_info["sw_version"] = description["firmware_version"]
+        return device_info
 
     @property
     def _protocol_model(self) -> str:

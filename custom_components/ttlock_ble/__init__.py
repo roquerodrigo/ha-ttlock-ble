@@ -22,8 +22,8 @@ from .connection import TtlockBleConnection
 from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBleLogCursor
-from .device_description_store import TtlockBleDeviceDescriptionStore
-from .record_store import TtlockBleRecordStore
+from .device_description_store import async_get_device_description_store
+from .record_store import async_get_record_store
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -102,8 +102,7 @@ async def async_setup_entry(
     virtual_keys = [VirtualKey.from_dict(dict(k)) for k in stored_keys]
 
     permanent_connection = bool(entry.options.get(CONF_PERMANENT_CONNECTION, False))
-    record_store = TtlockBleRecordStore(hass)
-    await record_store.async_load()
+    record_store = await async_get_record_store(hass)
     connections: dict[str, TtlockBleConnection] = {
         key.lockMac: TtlockBleConnection(
             hass,
@@ -123,8 +122,7 @@ async def async_setup_entry(
         for connection in connections.values():
             await connection.async_start()
 
-    description_store = TtlockBleDeviceDescriptionStore(hass)
-    await description_store.async_load()
+    description_store = await async_get_device_description_store(hass)
     coordinator = TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,

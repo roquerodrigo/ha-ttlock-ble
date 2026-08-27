@@ -80,3 +80,15 @@ async def test_an_empty_backlog_still_marks_the_lock_seeded(hass, hass_storage) 
     await restored.async_load()
     assert restored.seen(MAC) == set()
     assert restored.is_seeded(MAC) is True
+
+
+async def test_every_entry_shares_one_store(hass) -> None:
+    """Two instances over one storage key take turns dropping each other's writes."""
+    from custom_components.ttlock_ble.record_store import async_get_record_store
+
+    first = await async_get_record_store(hass)
+    first.async_remember(MAC, {1, 2})
+    second = await async_get_record_store(hass)
+
+    assert second is first
+    assert second.seen(MAC) == {1, 2}

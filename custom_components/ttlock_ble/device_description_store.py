@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from homeassistant.helpers.singleton import singleton
 from homeassistant.helpers.storage import Store
+from homeassistant.util.hass_dict import HassKey
 
 from .const import DOMAIN
 
@@ -61,3 +63,23 @@ class TtlockBleDeviceDescriptionStore:
     def _snapshot(self) -> dict[str, TtlockBleDeviceDescription]:
         """Render the in-memory descriptions as the JSON the store writes."""
         return dict(self._descriptions)
+
+
+STORE_KEY: HassKey[TtlockBleDeviceDescriptionStore] = HassKey(
+    f"{DOMAIN}_device_description_store"
+)
+
+
+@singleton(STORE_KEY, async_=True)
+async def async_get_device_description_store(
+    hass: HomeAssistant,
+) -> TtlockBleDeviceDescriptionStore:
+    """
+    Return the one store this Home Assistant instance shares.
+
+    One instance per entry writes the whole file from what it loaded, so
+    two entries would take turns dropping each other's newer answers.
+    """
+    store = TtlockBleDeviceDescriptionStore(hass)
+    await store.async_load()
+    return store

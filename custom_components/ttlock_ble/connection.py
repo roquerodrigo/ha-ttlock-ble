@@ -342,8 +342,18 @@ class TtlockBleConnection:
         )
         try:
             await client.connect()
-        except TTLockError as exc:
+        except Exception as exc:  # noqa: BLE001
+            # `TTLockError` alone is not enough: the SDK's connect path
+            # leaves `start_notify` unwrapped, so bleak raises a plain
+            # `BleakError` when the link drops between the connect and
+            # the subscription. Letting that out bypasses the wrapper
+            # every command path relies on, and the user gets an unknown
+            # error with a traceback instead of a failure that names the
+            # lock. The half-open session is closed here rather than
+            # left to the firmware's idle timeout.
             LOGGER.debug("BLE connect failed for %s: %s", self._key.lockMac, exc)
+            with contextlib.suppress(Exception):
+                await client.disconnect()
             return None
         client.add_event_listener(self._on_event)
         self._client = client

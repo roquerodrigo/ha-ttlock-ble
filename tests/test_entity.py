@@ -47,8 +47,10 @@ async def test_entity_device_info_model_carries_protocol(
     """Until a lock is read, its protocol version is all that is known."""
     info = _entity(hass, sample_virtual_key).device_info
     assert info["model"] == "Protocol 5.3"
-    assert info["hw_version"] is None
-    assert info["sw_version"] is None
+    # Spelled out, an unknown version would blank whatever a poll had
+    # already stamped on the registry device; left out, it is kept.
+    assert "hw_version" not in info
+    assert "sw_version" not in info
 
 
 async def test_entity_device_info_prefers_what_the_lock_reported(
@@ -82,6 +84,7 @@ async def test_entity_device_info_keeps_the_protocol_when_no_model_was_read(
         },
     ).device_info
     assert info["model"] == "Protocol 5.3"
+    assert "hw_version" not in info
     assert info["sw_version"] == "6.5.20.24121101"
 
 

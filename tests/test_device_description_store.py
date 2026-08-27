@@ -53,3 +53,17 @@ async def test_locks_keep_separate_descriptions(hass) -> None:
     store = TtlockBleDeviceDescriptionStore(hass)
     store.async_remember(MAC, DESCRIPTION)
     assert store.get(other) is None
+
+
+async def test_every_entry_shares_one_store(hass) -> None:
+    """Two instances over one storage key take turns dropping each other's writes."""
+    from custom_components.ttlock_ble.device_description_store import (
+        async_get_device_description_store,
+    )
+
+    first = await async_get_device_description_store(hass)
+    first.async_remember(MAC, DESCRIPTION)
+    second = await async_get_device_description_store(hass)
+
+    assert second is first
+    assert second.get(MAC) == DESCRIPTION
