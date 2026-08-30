@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.8.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.7.0...v3.8.0) (2026-08-30)
+
+
+### Features
+
+* keep the lock's own clock aligned with local time ([940f280](https://github.com/roquerodrigo/ha-ttlock-ble/commit/940f280019b2a7a14a07ba30e06b0bce6a020228))
+
+
+### Miscellaneous Chores
+
+* **deps:** bump ttlock-ble to 0.3.0 ([66263f8](https://github.com/roquerodrigo/ha-ttlock-ble/commit/66263f82b0751af17961a8b9686199e04cec03d7))
+
 ## [3.7.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.6.1...v3.7.0) (2026-08-27)
 
 
