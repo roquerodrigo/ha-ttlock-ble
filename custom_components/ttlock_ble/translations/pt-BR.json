@@ -137,6 +137,9 @@
       "battery": {
         "name": "Bateria"
       },
+      "clock_drift": {
+        "name": "Desvio do relógio"
+      },
       "last_seen": {
         "name": "Visto por último"
       }

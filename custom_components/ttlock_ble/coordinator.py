@@ -26,6 +26,7 @@ from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from ttlock_ble import LockState
 
@@ -38,8 +39,10 @@ if TYPE_CHECKING:
 
     from ttlock_ble import LockAdvertisement
 
+    from .clock_sync_store import TtlockBleClockSyncStore
     from .connection import TtlockBleConnection
     from .data import (
+        TtlockBleClockSync,
         TtlockBleConfigEntry,
         TtlockBleCoordinatorData,
         TtlockBleDeviceDescription,
@@ -62,6 +65,23 @@ LOG_RETRY_COOLDOWN_SECONDS = 300.0
 # is not connected to on every advertisement it sends.
 STATE_PROBE_COOLDOWN_SECONDS = 300.0
 
+# How long between comparisons of a lock's clock against local time. The
+# lock has no NTP and drifts by seconds a day, so checking more often
+# than this spends a BLE round trip to learn nothing.
+CLOCK_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
+
+# How far off the lock's clock has to read before it is written back.
+# Deliberately far above the two seconds the library defaults to: the
+# measurement travels over BLE, and the round trip alone accounts for
+# seconds, so a tighter threshold would rewrite a healthy lock's clock
+# on every check and pay for it in battery.
+CLOCK_DRIFT_THRESHOLD_SECONDS = 30.0
+
+# Above this, a correction is worth a line in the log at INFO. A lock
+# does not drift by minutes on its own - a gap that size usually means
+# it was set up on a different wall clock than Home Assistant keeps.
+CLOCK_LARGE_CORRECTION_SECONDS = 300.0
+
 
 class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinatorData"]):
     """Publish lock state, from advertisements and from on-demand reads."""
@@ -73,6 +93,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         hass: HomeAssistant,
         connections: dict[str, TtlockBleConnection],
         descriptions: TtlockBleDeviceDescriptionStore,
+        clock_syncs: TtlockBleClockSyncStore,
     ) -> None:
         """
         Pin the per-MAC connection map. No polling interval on purpose.
@@ -87,6 +108,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         super().__init__(hass=hass, logger=LOGGER, name=DOMAIN)
         self._connections = connections
         self._descriptions = descriptions
+        self._clock_syncs = clock_syncs
         self._described: set[str] = set()
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
@@ -123,6 +145,11 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
     def async_device_description(self, mac: str) -> TtlockBleDeviceDescription | None:
         """Return the hardware strings `mac` last reported about itself."""
         return self._descriptions.get(mac)
+
+    @callback
+    def async_clock_sync(self, mac: str) -> TtlockBleClockSync | None:
+        """Return the last clock comparison for `mac`, if there was one."""
+        return self._clock_syncs.get(mac)
 
     @callback
     def async_has_state(self, mac: str) -> bool:
@@ -333,6 +360,12 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
                 mac,
                 exc_info=True,
             )
+        else:
+            # Only once the read landed: it is proof of a live session,
+            # which is the whole reason the clock check rides here. A
+            # failure above must not reach the retry bookkeeping below
+            # as if the log itself had failed.
+            await self._async_align_clock(connection)
         finally:
             self._log_fetches.discard(mac)
             if self._records_pending.get(mac, False):
@@ -377,6 +410,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
                 exc_info=True,
             )
         await self._async_describe(connection)
+        await self._async_align_clock(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
@@ -408,6 +442,91 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             return
         self._descriptions.async_remember(mac, description)
         self._async_apply_description(mac, description)
+
+    async def _async_align_clock(self, connection: TtlockBleConnection) -> None:
+        """
+        Compare the lock's clock against local time, and correct a drifted one.
+
+        Rides on a session another read just opened, like the hardware
+        description does, and runs at most once a day per lock: the
+        answer moves by seconds a day, and a lock only grants a session
+        while it is awake.
+
+        The comparison is what makes the lock's operation-log records
+        trustworthy. Every record is stamped from this clock, with no
+        offset attached, and Home Assistant reads those stamps as local
+        time - so a lock whose clock has wandered files the door events
+        of a whole day at the wrong hour.
+        """
+        mac = connection.key.lockMac
+        if not self._async_clock_check_due(mac):
+            return
+        before = dt_util.now()
+        lock_time = await connection.async_get_lock_time()
+        if lock_time is None:
+            return
+        # The reference is the midpoint of the read, not its start: the
+        # round trip takes seconds over BLE, and charging all of that to
+        # the lock would report a healthy clock as drifted.
+        reference = before + (dt_util.now() - before) / 2
+        drift = (lock_time - reference.replace(tzinfo=None)).total_seconds()
+        LOGGER.debug("Clock drift for %s: %+.1fs", mac, drift)
+        self._clock_syncs.async_remember(
+            mac,
+            {"checked_at": dt_util.utcnow().isoformat(), "drift_seconds": drift},
+        )
+        self.async_update_listeners()
+        if abs(drift) <= CLOCK_DRIFT_THRESHOLD_SECONDS:
+            return
+        await self._async_correct_clock(connection, drift)
+
+    async def _async_correct_clock(
+        self,
+        connection: TtlockBleConnection,
+        drift: float,
+    ) -> None:
+        """
+        Write local time back to a lock whose clock has wandered.
+
+        The reference is taken here rather than reused from the
+        comparison: that one is already a round trip old by now, and
+        writing it would put the lock behind by exactly the delay the
+        check was measuring.
+
+        Only a key carrying an admin password can do this - the firmware
+        gates the write behind CHECK_ADMIN. A lock read through a key
+        without one still gets its drift reported; there is just nothing
+        this integration can do about it.
+        """
+        mac = connection.key.lockMac
+        if not connection.key.adminPs.isdigit():
+            LOGGER.debug(
+                "Clock of %s is %+.1fs off, but its key carries no admin password",
+                mac,
+                drift,
+            )
+            return
+        if abs(drift) > CLOCK_LARGE_CORRECTION_SECONDS:
+            LOGGER.info(
+                "Clock of %s was %+.1fs off local time, correcting it",
+                mac,
+                drift,
+            )
+        if not await connection.async_calibrate_time(
+            dt_util.now().replace(tzinfo=None)
+        ):
+            LOGGER.debug("Clock correction did not reach %s", mac)
+
+    def _async_clock_check_due(self, mac: str) -> bool:
+        """Report whether `mac` is due for a clock comparison."""
+        last = self._clock_syncs.get(mac)
+        if last is None:
+            return True
+        checked_at = dt_util.parse_datetime(last["checked_at"])
+        if checked_at is None:
+            return True
+        age = (dt_util.utcnow() - checked_at).total_seconds()
+        return age >= CLOCK_CHECK_INTERVAL_SECONDS
 
     @callback
     def _async_apply_description(

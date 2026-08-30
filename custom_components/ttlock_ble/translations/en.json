@@ -137,6 +137,9 @@
       "battery": {
         "name": "Battery"
       },
+      "clock_drift": {
+        "name": "Clock drift"
+      },
       "last_seen": {
         "name": "Last seen"
       }

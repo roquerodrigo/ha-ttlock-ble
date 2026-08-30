@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import datetime as dt
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.util import dt as dt_util
 from ttlock_ble import DeviceInfo
 
+from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
 from custom_components.ttlock_ble.coordinator import (
+    CLOCK_CHECK_INTERVAL_SECONDS,
+    CLOCK_DRIFT_THRESHOLD_SECONDS,
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
 )
@@ -34,14 +39,17 @@ def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicM
     conn.async_query_state = AsyncMock(return_value=query_return)
     conn.async_get_operation_log = AsyncMock(return_value=[])
     conn.async_get_device_info = AsyncMock(return_value=None)
+    conn.async_get_lock_time = AsyncMock(return_value=None)
+    conn.async_calibrate_time = AsyncMock(return_value=True)
     return conn
 
 
-def _coordinator(hass, connections, descriptions=None):
+def _coordinator(hass, connections, descriptions=None, clock_syncs=None):
     return TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,
         descriptions=descriptions or TtlockBleDeviceDescriptionStore(hass),
+        clock_syncs=clock_syncs or TtlockBleClockSyncStore(hass),
     )
 
 
@@ -673,3 +681,141 @@ async def test_a_cancelled_retry_never_fires_again(hass) -> None:
     await hass.async_block_till_done()
 
     conn.async_get_operation_log.assert_not_awaited()
+
+
+MAC = "AA:BB:CC:DD:EE:FF"
+
+
+def _clock_connection(*, lock_offset_seconds: float, admin_ps: str = "135792468"):
+    """A connection whose lock answers a clock `lock_offset_seconds` off local time."""
+    conn = _mock_connection()
+    conn.key = MagicMock(lockMac=MAC, adminPs=admin_ps)
+    naive_now = dt_util.now().replace(tzinfo=None)
+    conn.async_get_lock_time = AsyncMock(
+        return_value=naive_now + dt.timedelta(seconds=lock_offset_seconds)
+    )
+    conn.async_calibrate_time = AsyncMock(return_value=True)
+    return conn
+
+
+async def test_a_healthy_clock_is_measured_and_left_alone(hass) -> None:
+    """Within the threshold there is nothing to write, and writing costs battery."""
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_time.assert_awaited_once()
+    conn.async_calibrate_time.assert_not_awaited()
+    sync = coordinator.async_clock_sync(MAC)
+    assert sync is not None
+    assert abs(sync["drift_seconds"]) < CLOCK_DRIFT_THRESHOLD_SECONDS
+
+
+async def test_a_drifted_clock_is_corrected(hass) -> None:
+    conn = _clock_connection(lock_offset_seconds=-600.0)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_calibrate_time.assert_awaited_once()
+    written = conn.async_calibrate_time.await_args.args[0]
+    assert written.tzinfo is None
+    # Written from a reference taken at the write, not the stale one the
+    # comparison used - reusing that would put the lock a round trip behind.
+    assert abs((written - dt_util.now().replace(tzinfo=None)).total_seconds()) < 5
+    assert (
+        coordinator.async_clock_sync(MAC)["drift_seconds"]
+        < -CLOCK_DRIFT_THRESHOLD_SECONDS
+    )
+
+
+async def test_a_key_with_no_admin_password_still_reports_its_drift(hass) -> None:
+    """The read is unauthenticated; only the correction needs an admin password."""
+    conn = _clock_connection(lock_offset_seconds=-600.0, admin_ps="")
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_calibrate_time.assert_not_awaited()
+    assert coordinator.async_clock_sync(MAC) is not None
+
+
+async def test_an_unreachable_clock_records_nothing(hass) -> None:
+    """A failed read must not stamp a check that never happened."""
+    conn = _clock_connection(lock_offset_seconds=0.0)
+    conn.async_get_lock_time = AsyncMock(return_value=None)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    assert coordinator.async_clock_sync(MAC) is None
+    conn.async_calibrate_time.assert_not_awaited()
+
+
+async def test_the_clock_is_checked_at_most_once_a_day(hass) -> None:
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_time.assert_awaited_once()
+
+
+async def test_the_clock_is_checked_again_once_the_interval_has_passed(hass) -> None:
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    clock_syncs = TtlockBleClockSyncStore(hass)
+    stale = dt_util.utcnow() - dt.timedelta(seconds=CLOCK_CHECK_INTERVAL_SECONDS + 60)
+    clock_syncs.async_remember(
+        MAC,
+        {"checked_at": stale.isoformat(), "drift_seconds": 0.0},
+    )
+    coordinator = _coordinator(hass, {MAC: conn}, clock_syncs=clock_syncs)
+
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_time.assert_awaited_once()
+
+
+async def test_an_unreadable_stored_timestamp_is_treated_as_never_checked(hass) -> None:
+    """A record that cannot be parsed must not wedge the check off forever."""
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    clock_syncs = TtlockBleClockSyncStore(hass)
+    clock_syncs.async_remember(MAC, {"checked_at": "not a date", "drift_seconds": 0.0})
+    coordinator = _coordinator(hass, {MAC: conn}, clock_syncs=clock_syncs)
+
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_time.assert_awaited_once()
+
+
+async def test_a_correction_that_never_reaches_the_lock_is_survivable(hass) -> None:
+    conn = _clock_connection(lock_offset_seconds=-600.0)
+    conn.async_calibrate_time = AsyncMock(return_value=False)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_calibrate_time.assert_awaited_once()
+
+
+async def test_the_log_read_carries_the_clock_check(hass) -> None:
+    """An advertised log read is the session a mostly idle lock actually grants."""
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_fetch_operation_log(MAC, conn)
+
+    conn.async_get_lock_time.assert_awaited_once()
+
+
+async def test_a_failed_log_read_carries_no_clock_check(hass) -> None:
+    """A read that never landed is no proof of a session to ride on."""
+    conn = _clock_connection(lock_offset_seconds=1.0)
+    conn.async_get_operation_log = AsyncMock(side_effect=ValueError("garbled frame"))
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_fetch_operation_log(MAC, conn)
+
+    conn.async_get_lock_time.assert_not_awaited()

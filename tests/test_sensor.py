@@ -21,8 +21,45 @@ def _last_seen_state(hass):
     )
 
 
+def _clock_drift_state(hass):
+    """The clock-drift sensor."""
+    return next(
+        state
+        for state in hass.states.async_all("sensor")
+        if state.attributes.get("device_class") == "duration"
+    )
+
+
+async def test_clock_drift_is_unknown_until_a_session_carried_a_comparison(
+    hass,
+    setup_integration,
+) -> None:
+    """Nothing here connects for it, so before the first check there is no answer."""
+    assert _clock_drift_state(hass).state == "unknown"
+
+
+async def test_clock_drift_reports_the_last_comparison(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from custom_components.ttlock_ble.clock_sync_store import async_get_clock_sync_store
+
+    store = await async_get_clock_sync_store(hass)
+    store.async_remember(
+        sample_virtual_key.lockMac,
+        {"checked_at": "2026-08-29T22:00:00+00:00", "drift_seconds": -12.5},
+    )
+    setup_integration.runtime_data.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    state = _clock_drift_state(hass)
+    assert float(state.state) == -12.5
+    assert state.attributes["checked_at"] == "2026-08-29T22:00:00+00:00"
+
+
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 2
+    assert len(hass.states.async_all("sensor")) == 3
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -150,6 +187,7 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
 ) -> None:
     """An empty coordinator snapshot leaves `_attr_native_value` untouched."""
 
+    from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
     from custom_components.ttlock_ble.device_description_store import (
         TtlockBleDeviceDescriptionStore,
@@ -160,6 +198,7 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
         hass,
         {},
         TtlockBleDeviceDescriptionStore(hass),
+        TtlockBleClockSyncStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)

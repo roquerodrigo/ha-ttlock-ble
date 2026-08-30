@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -759,6 +760,80 @@ async def test_device_info_that_breaks_the_link_costs_nothing_else(
     mock_ttlock_client.get_device_info = AsyncMock(side_effect=TTLockError("link down"))
     conn = TtlockBleConnection(hass, sample_virtual_key)
     assert await conn.async_get_device_info() is None
+
+
+async def test_get_lock_time_returns_the_lock_rtc(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    when = dt.datetime(2026, 8, 29, 22, 43, 10)  # noqa: DTZ001
+    mock_ttlock_client.get_lock_time = AsyncMock(return_value=when)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_time() == when
+
+
+async def test_get_lock_time_returns_none_when_device_missing(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_time() is None
+    mock_ttlock_client.connect.assert_not_awaited()
+
+
+async def test_get_lock_time_that_fails_costs_nothing_else(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A clock reading is not worth failing the poll that carried it."""
+    mock_ttlock_client.get_lock_time = AsyncMock(side_effect=TTLockError("link down"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_time() is None
+
+
+async def test_calibrate_time_reports_that_it_landed(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    when = dt.datetime(2026, 8, 29, 22, 43, 10)  # noqa: DTZ001
+    mock_ttlock_client.calibrate_time = AsyncMock(return_value=None)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_calibrate_time(when) is True
+    mock_ttlock_client.calibrate_time.assert_awaited_once_with(when)
+
+
+async def test_calibrate_time_reports_a_lock_out_of_reach(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_calibrate_time(dt.datetime(2026, 8, 29)) is False  # noqa: DTZ001
+
+
+async def test_calibrate_time_reports_a_rejection(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A key with no admin password is refused by the firmware, not by us."""
+    mock_ttlock_client.calibrate_time = AsyncMock(
+        side_effect=TTLockError("Failed to authorize as admin")
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_calibrate_time(dt.datetime(2026, 8, 29)) is False  # noqa: DTZ001
 
 
 async def test_a_bleak_error_from_connect_is_not_left_raw(

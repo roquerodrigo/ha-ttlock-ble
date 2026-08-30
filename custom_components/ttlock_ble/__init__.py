@@ -18,6 +18,7 @@ from homeassistant.helpers.device_registry import (
 from ttlock_ble import VirtualKey
 
 from .advertisement import TtlockBleAdvertisementTracker
+from .clock_sync_store import async_get_clock_sync_store
 from .connection import TtlockBleConnection
 from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
@@ -123,10 +124,12 @@ async def async_setup_entry(
             await connection.async_start()
 
     description_store = await async_get_device_description_store(hass)
+    clock_sync_store = await async_get_clock_sync_store(hass)
     coordinator = TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,
         descriptions=description_store,
+        clock_syncs=clock_sync_store,
     )
 
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(

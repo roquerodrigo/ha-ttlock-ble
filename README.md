@@ -14,6 +14,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Local BLE control** — lock, unlock, and state queries run over the lock's BLE link; the TTLock cloud is only contacted once at setup to download per-lock keys.
 - **Real-time push events** — keypad presses, fingerprint reads, IC-card swipes, mechanical key turns, and auto-lock fires arrive as Home Assistant events the moment the lock emits them.
 - **Battery sensor** — diagnostic entity refreshed by every poll *and* every push, no extra BLE traffic.
+- **Clock alignment** — the lock's own clock, which stamps every operation-log record, is compared against local time once a day on a session something else already opened, and corrected when it has wandered. A diagnostic sensor reports the measured drift.
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
@@ -24,7 +25,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 
 ## Entities
 
-Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to six entities:
+Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to seven entities:
 
 | Entity | Domain | Purpose |
 |---|---|---|
@@ -33,6 +34,7 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `binary_sensor.<alias>_bluetooth_connection` | `binary_sensor` | Whether a BLE session is open right now (connectivity, diagnostic). A healthy idle lock holds none, so `off` says nothing about whether the lock is reachable. |
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
+| `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
 | `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep. Assumed state — the firmware reports no readback — and only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
 
 The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
@@ -127,8 +129,9 @@ custom_components/ttlock_ble/
 ├── manifest.json
 ├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── options_flow.py    # TtlockBleOptionsFlow: permanent_connection
+├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
-├── sensor.py          # TtlockBleBatterySensor + TtlockBleLastSeenSensor
+├── sensor.py          # battery, last-seen and clock-drift sensors
 ├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
 └── translations/
     ├── en.json

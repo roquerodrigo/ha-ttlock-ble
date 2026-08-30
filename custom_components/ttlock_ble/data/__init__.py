@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .clock_sync import TtlockBleClockSync
 from .config_data import TtlockBleConfigData
 from .credentials_input import TtlockBleCredentialsInput
 from .device_description import TtlockBleDeviceDescription
@@ -36,6 +37,7 @@ type TtlockBleCoordinatorData = dict[str, TtlockBleLockState]
 
 
 __all__ = [
+    "TtlockBleClockSync",
     "TtlockBleConfigData",
     "TtlockBleConfigEntry",
     "TtlockBleCoordinatorData",

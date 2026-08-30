@@ -62,9 +62,10 @@ advertisement.py → decodes lock state + battery from the advertisements
 coordinator.py   → publishes the advertised state as it arrives; no polling
                     interval, a refresh only on demand
 lock.py          → LockEntity backed by the BLE connection
-sensor.py        → BatterySensor backed by the same poll + push events, and
-                    a LastSeenSensor reading the bluetooth manager's own
-                    advertisement history (see below)
+sensor.py        → BatterySensor backed by the same poll + push events, a
+                    LastSeenSensor reading the bluetooth manager's own
+                    advertisement history (see below), and a ClockDriftSensor
+                    reporting how far the lock's own clock has wandered
 binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
                     (named "Bluetooth connection": a healthy idle lock holds
                     no session, so this being off says nothing about reach)
@@ -76,6 +77,9 @@ device_description_store.py
                  → persists what each lock reported about itself (model,
                     hardware, firmware), so a restart shows it before any
                     session is opened
+clock_sync_store.py
+                 → persists when each lock's clock was last compared with
+                    local time, so the daily pacing survives a restart
 ```
 
 ### Entry typing
@@ -170,6 +174,15 @@ The diagnostics dump carries the last advertisement per lock, raw bytes included
 - **Once per Home Assistant run, not once ever.** The values are static until a firmware upgrade changes them, so the store is what a restart displays, and the first successful poll of each run re-reads and replaces it.
 - **An unknown field is left out of `device_info`, not spelled as `None`.** `DeviceInfo` is a TypedDict, and every key present is written to the registry device — `None` included, since only an absent key means "leave this alone". Spelling out an unknown version blanked what a poll had already stamped and reverted the model to the protocol fallback, on any entity re-registration before the store had an answer.
 - **The registry device is updated in place.** An entity's `device_info` is only read when the entity is registered, so a description learned mid-run would otherwise wait for the next restart to appear. A field the lock did not answer is left untouched rather than blanked — `entity.py` falls back to the key's protocol version for the model, which beats an empty one.
+
+### Clock alignment
+
+The lock stamps every operation-log record from an RTC it keeps itself: no NTP, no gateway, and no offset stored alongside the value. Home Assistant reads those stamps as local time, so a drifted clock files a whole day of door events at the wrong hour. `coordinator.py`'s `_async_align_clock` is what keeps them honest, and four things shape it:
+
+- **Nothing connects for it.** Like `_async_describe`, the comparison rides a session another read just opened — a poll that reached the lock, or an advertised operation-log read that landed. The log path is the one that matters on a mostly idle lock: every use of the door writes a record, and the read that follows is a session for free. It is deliberately in the `else` of that read's `try`, because a read that failed is no proof of a session and must not reach the retry bookkeeping in the `finally`.
+- **Once a day, paced from disk.** `clock_sync_store.py` keeps the timestamp per MAC. The answer moves by seconds a day, and holding the pacing only in memory would re-read on every restart.
+- **The reference is the midpoint of the read, and the write takes a fresh one.** A BLE round trip through a proxy costs seconds — enough that charging all of it to the lock reports a healthy clock as drifted by more than the SDK's 2 s default. `CLOCK_DRIFT_THRESHOLD_SECONDS` is 30 s for the same reason. This is also why `sync_time()` is not used: it captures its reference before the read and then writes that same, now stale, value.
+- **Reading is unauthenticated; writing is not.** `get_lock_time` needs no handshake, so a lock reached through a key with no admin password still reports its drift — the integration just cannot correct it. `TtlockBleClockDriftSensor` publishes the measured drift as a diagnostic, `unknown` until a session has carried a comparison.
 
 ### Lock entity
 

@@ -1,4 +1,4 @@
-"""Sensor platform for ttlock_ble — battery level and last contact."""
+"""Sensor platform for ttlock_ble — battery level, last contact and clock drift."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
@@ -52,6 +52,7 @@ async def async_setup_entry(
         for sensor in (
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
+            TtlockBleClockDriftSensor(data.coordinator, key),
         )
     )
 
@@ -114,6 +115,48 @@ class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
         if battery is None:
             return
         self._attr_native_value = battery
+
+
+class TtlockBleClockDriftSensor(TtlockBleEntity, SensorEntity):
+    """
+    How far the lock's own clock was off local time when last compared.
+
+    The lock stamps every operation-log record from a clock it keeps
+    itself, with no NTP and no offset attached, and Home Assistant reads
+    those stamps as local time. A drifted clock therefore files a whole
+    day of door events at the wrong hour, and nothing else on the device
+    would show it.
+
+    Positive means the lock runs ahead. The value is what was measured
+    before any correction, so it stays a reading of how far the clock
+    wanders rather than resetting to zero every time one is written
+    back. It reports `unknown` until a session opened for something else
+    has carried a comparison — nothing here connects for it.
+    """
+
+    _attr_translation_key = "clock_drift"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 1
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_clock_drift"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the drift of the last comparison, if one has run."""
+        sync = self.coordinator.async_clock_sync(self._key.lockMac)
+        return None if sync is None else sync["drift_seconds"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Carry when the comparison ran, so a stale reading reads as stale."""
+        sync = self.coordinator.async_clock_sync(self._key.lockMac)
+        return None if sync is None else {"checked_at": sync["checked_at"]}
 
 
 class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):

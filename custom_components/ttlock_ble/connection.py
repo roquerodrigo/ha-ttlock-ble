@@ -27,6 +27,8 @@ from .const import DOMAIN, LOGGER
 from .data import TtlockBleLogCursor
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from bleak import BleakClient
     from homeassistant.core import HomeAssistant
 
@@ -184,6 +186,61 @@ class TtlockBleConnection:
                     exc,
                 )
                 return None
+
+    async def async_get_lock_time(self) -> datetime | None:
+        """
+        Read the lock's own clock through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        The value is naive and carries no offset: it is whatever wall
+        clock was last written to the lock, which for a lock set up by
+        the official app is local time.
+
+        No admin handshake is involved - the firmware answers this one
+        unauthenticated, unlike `async_calibrate_time`.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_lock_time()
+            except Exception as exc:  # noqa: BLE001
+                # A clock reading is not worth losing a poll over: the
+                # caller keeps whatever it knew and tries again later.
+                LOGGER.debug(
+                    "get_lock_time failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return None
+
+    async def async_calibrate_time(self, local_time: datetime) -> bool:
+        """
+        Write `local_time` to the lock's clock. Reports whether it landed.
+
+        `local_time` is stored verbatim, with no offset attached, and is
+        what the lock reports back in every operation-log record - so it
+        has to be the wall clock the records are meant to read in, not
+        UTC.
+
+        Admin-gated by the firmware, so a key carrying no admin password
+        can only ever fail here; callers check that before asking.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return False
+            try:
+                await client.calibrate_time(local_time)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug(
+                    "calibrate_time failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return False
+            return True
 
     async def async_lock(self) -> None:
         """Send a LOCK command on the live connection (raises on failure)."""
