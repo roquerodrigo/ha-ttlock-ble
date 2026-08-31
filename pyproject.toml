@@ -9,7 +9,7 @@ package = false
 
 [dependency-groups]
 dev = [
-    "aioesphomeapi==45.12.0",
+    "aioesphomeapi==46.2.1",
     "aiousbwatcher==1.1.2",
     "bleak==3.0.2",
     "bluetooth-adapters==2.4.0",
@@ -22,11 +22,11 @@ dev = [
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pytest-homeassistant-custom-component==0.13.354",
-    "serialx==1.8.2",
+    "serialx==1.9.0",
     "ttlock-ble==0.3.0",
 ]
 lint = [
-    "ruff==0.16.4",
+    "ruff==0.16.5",
     "mypy==2.3.1",
 ]
 
