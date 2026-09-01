@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.9.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.8.0...v3.9.0) (2026-09-01)
+
+
+### Features
+
+* discover locks over bluetooth ([59aca78](https://github.com/roquerodrigo/ha-ttlock-ble/commit/59aca78847d286d3f1096cec8a2f6147ae51b28f))
+
+
+### Bug Fixes
+
+* drop the placeholder from the discovery step title ([b5c6bc5](https://github.com/roquerodrigo/ha-ttlock-ble/commit/b5c6bc566cde8d9063ed3d6bc044962d15fc700f))
+
 ## [3.8.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.7.0...v3.8.0) (2026-08-30)
 
 
