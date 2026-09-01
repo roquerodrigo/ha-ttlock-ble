@@ -15,6 +15,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Real-time push events** — keypad presses, fingerprint reads, IC-card swipes, mechanical key turns, and auto-lock fires arrive as Home Assistant events the moment the lock emits them.
 - **Battery sensor** — diagnostic entity refreshed by every poll *and* every push, no extra BLE traffic.
 - **Clock alignment** — the lock's own clock, which stamps every operation-log record, is compared against local time once a day on a session something else already opened, and corrected when it has wandered. A diagnostic sensor reports the measured drift.
+- **Bluetooth discovery** — a lock in range of any radio Home Assistant manages shows up on its own as a discovered device; the address and the frame header come off the advertisement, so only the keys are left to provide.
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
@@ -43,7 +44,7 @@ The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `p
 
 1. Install via HACS using the button above, or add this repo as a custom HACS repository (category: Integration).
 2. Restart Home Assistant.
-3. Settings → Devices & Services → Add Integration → **TTLock BLE**.
+3. Settings → Devices & Services → either pick the **TTLock BLE** card already waiting under *Discovered* (any lock in range of a radio Home Assistant manages announces itself), or Add Integration → **TTLock BLE**.
 4. Choose how the keys are obtained:
    - **Sign in to a TTLock account** — enter the email + password you use in the official app. If TTLock has never seen this Home Assistant before it emails a verification code; paste it into the next step. Every lock on the account is synced at once.
    - **Enter a lock key manually** — for a lock initialised outside the cloud. See below.
@@ -61,11 +62,13 @@ A lock initialised by a local BLE bridge never goes through the cloud, and its o
 | Admin passcode | optional, digits; only needed for managing passcodes |
 | Protocol type / version / scene / group ID / organisation ID | the frame header the lock expects. The defaults (5, 3, 2, 1, 1) suit most V3 locks |
 
+Started from a discovered lock, the MAC address, the name and the first three protocol numbers arrive pre-filled from the advertisement — the keys are all that is left to type.
+
 Only these reach the wire. The rest of what the cloud returns per key — user id, lock-flag position, validity window — is never read by the Bluetooth layer, which addresses the lock with a zeroed user id and the firmware's "permanent key" date literals regardless.
 
 If the lock is in range when the form is submitted, the protocol type, version and scene are checked against what it broadcasts, so a wrong value is caught there instead of becoming a lock that never answers. Getting a value wrong later is fixable through the integration's three-dot menu → **Reconfigure**.
 
-The Bluetooth radio HA already manages (USB dongle, built-in adapter, or proxy) discovers the lock automatically — no additional configuration.
+Reaching the lock takes no extra configuration: whatever Bluetooth radio Home Assistant already manages — USB dongle, built-in adapter, or an ESPHome proxy — is the one used.
 
 ## Options
 
@@ -115,7 +118,7 @@ custom_components/ttlock_ble/
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
 ├── binary_sensor.py   # TtlockBleConnectionBinarySensor: live BLE link state
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
-├── config_flow.py     # menu / cloud / manual / verify_code / reauth / reconfigure
+├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
 ├── const.py           # DOMAIN, LOGGER, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection

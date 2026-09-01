@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Set up TTLock BLE",
@@ -7,6 +8,14 @@
         "menu_options": {
           "cloud": "Sign in to a TTLock account",
           "manual": "Enter a lock key manually"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Set up {name}",
+        "description": "This lock was found over Bluetooth. Its address and protocol header are already known; what is still missing are its keys, which live either in a TTLock account or in whatever provisioned the lock locally.",
+        "menu_options": {
+          "cloud": "Sign in to a TTLock account",
+          "manual": "Enter this lock's key manually"
         }
       },
       "cloud": {
@@ -83,13 +92,15 @@
       "invalid_aes_key": "The AES key must be 16 bytes of hex.",
       "invalid_unlock_key": "The unlock key must be digits only.",
       "invalid_admin_passcode": "The admin passcode must be digits only.",
-      "protocol_mismatch": "The lock is broadcasting a different protocol type, version or scene than the one entered. Check the values against your lock data."
+      "protocol_mismatch": "The lock is broadcasting a different protocol type, version or scene than the one entered. Check the values against your lock data.",
+      "lock_not_in_account": "This account holds no key for the lock that was found. Sign in with the account that owns it, or enter its key manually."
     },
     "abort": {
       "already_configured": "This lock or account is already configured.",
       "reauth_successful": "Re-authentication was successful.",
       "reconfigure_successful": "Reconfiguration was successful.",
-      "wrong_account": "The credentials entered belong to a different TTLock account. Re-authenticate with the account this entry was created from."
+      "wrong_account": "The credentials entered belong to a different TTLock account. Re-authenticate with the account this entry was created from.",
+      "not_a_lock": "This Bluetooth device is not a TTLock lock."
     }
   },
   "options": {

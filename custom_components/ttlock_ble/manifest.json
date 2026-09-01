@@ -1,6 +1,12 @@
 {
   "domain": "ttlock_ble",
   "name": "TTLock BLE",
+  "bluetooth": [
+    {
+      "connectable": false,
+      "manufacturer_id": 773
+    }
+  ],
   "codeowners": [
     "@roquerodrigo"
   ],

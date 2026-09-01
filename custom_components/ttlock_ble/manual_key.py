@@ -6,14 +6,16 @@ import re
 from typing import TYPE_CHECKING
 
 from homeassistant.components.bluetooth import async_last_service_info
-from homeassistant.helpers.device_registry import format_mac
 
-from ttlock_ble import LockAdvertisement, LockVersion, VirtualKey
+from ttlock_ble import LockVersion, VirtualKey
 
+from .advertisement import decode_lock_advertisement
 from .const import LOGGER
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+    from ttlock_ble import LockAdvertisement
 
     from .data import TtlockBleManualKeyInput, TtlockBleStoredKey
 
@@ -151,18 +153,7 @@ class TtlockBleManualKey:
         service_info = async_last_service_info(self._hass, mac, connectable=False)
         if service_info is None:
             return None
-        expected = format_mac(mac)
-        for company_id, payload in service_info.manufacturer_data.items():
-            advertisement = LockAdvertisement.from_manufacturer_data(
-                company_id,
-                payload,
-            )
-            if (
-                advertisement is not None
-                and format_mac(advertisement.lock_mac) == expected
-            ):
-                return advertisement
-        return None
+        return decode_lock_advertisement(mac, service_info.manufacturer_data)
 
 
 def _normalized_mac(raw: str) -> str:

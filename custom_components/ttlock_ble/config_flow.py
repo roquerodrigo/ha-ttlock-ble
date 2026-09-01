@@ -14,6 +14,7 @@ from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import slugify
 
+from .advertisement import decode_lock_advertisement
 from .api import TtlockBleApiClient
 from .const import DOMAIN, LOGGER
 from .exceptions import (
@@ -28,6 +29,10 @@ from .options_flow import TtlockBleOptionsFlow
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+
+    from ttlock_ble import LockAdvertisement
+
     from .data import (
         TtlockBleConfigData,
         TtlockBleConfigEntry,
@@ -40,6 +45,7 @@ if TYPE_CHECKING:
 
 CONF_VERIFICATION_CODE = "verification_code"
 ABORT_ALREADY_CONFIGURED = "already_configured"
+ABORT_NOT_A_LOCK = "not_a_lock"
 DEFAULT_PROTOCOL_TYPE = 5
 DEFAULT_PROTOCOL_VERSION = 3
 DEFAULT_SCENE = 2
@@ -160,6 +166,9 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     _username: str
     _password: str
+    _discovery: BluetoothServiceInfoBleak | None = None
+    _discovered_advertisement: LockAdvertisement | None = None
+    _discovered_name: str = ""
 
     @staticmethod
     @callback
@@ -178,6 +187,51 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Offer the two ways of obtaining a lock's keys."""
         return self.async_show_menu(step_id="user", menu_options=["cloud", "manual"])
+
+    async def async_step_bluetooth(
+        self,
+        discovery_info: BluetoothServiceInfoBleak,
+    ) -> config_entries.ConfigFlowResult:
+        """
+        Handle a lock the bluetooth manager heard advertise.
+
+        The manifest matcher is the manufacturer id alone, which is the
+        protocol header of a V3 lock and nothing more specific; the
+        decode plus the address cross-check is what separates a real
+        lock from anything else that happens to broadcast under it.
+        """
+        advertisement = decode_lock_advertisement(
+            discovery_info.address,
+            discovery_info.manufacturer_data,
+        )
+        if advertisement is None:
+            return self.async_abort(reason=ABORT_NOT_A_LOCK)
+        await self.async_set_unique_id(format_mac(discovery_info.address))
+        self._abort_if_unique_id_configured()
+        self._abort_if_lock_configured(discovery_info.address)
+        self._discovery = discovery_info
+        self._discovered_advertisement = advertisement
+        self._discovered_name = discovery_info.name or discovery_info.address
+        self.context["title_placeholders"] = {"name": self._discovered_name}
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(
+        self,
+        user_input: TtlockBleCredentialsInput | None = None,  # noqa: ARG002
+    ) -> config_entries.ConfigFlowResult:
+        """
+        Offer the two key routes for a lock that was found, not typed in.
+
+        Discovery hands over the address and the frame header, never the
+        AES and unlock keys — those exist only in a TTLock account or in
+        whatever provisioned the lock locally. So this is the same menu
+        the manual entry point shows, with the lock already identified.
+        """
+        return self.async_show_menu(
+            step_id="bluetooth_confirm",
+            menu_options=["cloud", "manual"],
+            description_placeholders={"name": self._discovered_name},
+        )
 
     async def async_step_cloud(
         self,
@@ -228,7 +282,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 )
         return self.async_show_form(
             step_id="manual",
-            data_schema=_manual_key_schema(user_input),
+            data_schema=_manual_key_schema(user_input or self._discovered_defaults()),
             errors=errors,
         )
 
@@ -322,6 +376,54 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    @callback
+    def _discovered_defaults(self) -> TtlockBleManualKeyInput | None:
+        """
+        Pre-fill the manual form with everything the advertisement already said.
+
+        The address, the name and three of the five frame-header
+        integers come off the air, so what is left to type is what only
+        the owner has. It also removes the class of typo the header
+        cross-check exists to catch.
+        """
+        if self._discovery is None or self._discovered_advertisement is None:
+            return None
+        return {
+            "lock_mac": self._discovery.address,
+            "aes_key": "",
+            "unlock_key": "",
+            "admin_passcode": "",
+            "lock_name": self._discovery.name or "",
+            "protocol_type": self._discovered_advertisement.protocol_type,
+            "protocol_version": self._discovered_advertisement.protocol_version,
+            "scene": self._discovered_advertisement.scene,
+            "group_id": DEFAULT_GROUP_ID,
+            "org_id": DEFAULT_ORG_ID,
+        }
+
+    @callback
+    def _discovered_lock_missing_from(
+        self,
+        keys: list[TtlockBleStoredKey],
+    ) -> dict[str, str]:
+        """
+        Refuse an account that does not hold the lock the discovery was about.
+
+        The flow was started from a card naming one lock; an account
+        without it would silently create an entry for a different set of
+        locks and leave the discovered one still unconfigured.
+        """
+        if self._discovery is None:
+            return {}
+        target = format_mac(self._discovery.address)
+        if any(format_mac(key["lockMac"]) == target for key in keys):
+            return {}
+        LOGGER.warning(
+            "The account holds no key for the discovered lock %s",
+            self._discovery.address,
+        )
+        return {"base": "lock_not_in_account"}
 
     @callback
     def _abort_if_lock_configured(
@@ -483,6 +585,9 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         keys, errors = await self._async_fetch_keys()
         if errors:
             return None, errors
+        missing = self._discovered_lock_missing_from(keys)
+        if missing:
+            return None, missing
         self._abort_if_any_lock_configured(keys)
         data: TtlockBleConfigData = {
             "username": self._username,

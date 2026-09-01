@@ -93,11 +93,25 @@ The two stores are the deliberate exception: `record_store.py` and `device_descr
 `config_flow.py` implements the user-facing steps, sharing one module-level `_credentials_schema` builder for the credential ones and one `_manual_key_schema` for the manual one:
 
 - `async_step_user` — a menu, nothing else: the entry can come from a cloud account or from a key entered by hand.
+- `async_step_bluetooth` / `async_step_bluetooth_confirm` — the discovery entry point (see below); the confirm step is the same two-option menu, with the lock already identified.
 - `async_step_cloud` — the credential step (named `user` before the menu existed); sets unique_id from username, aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code.
 - `async_step_verify_code` — second step of the 2FA branch; submits the emailed code via `_async_validate_code_and_login` and finalizes entry creation on success.
 - `async_step_reauth` / `async_step_reauth_confirm` — HA's reauth entry points. Nothing in this integration currently raises `ConfigEntryAuthFailed` to trigger them automatically — the coordinator and `connection.py` only ever talk BLE after setup, never the cloud again — so today these steps are reachable only by manually starting a reauth flow for the entry. `async_update_reload_and_abort` rotates credentials in place on success.
 - `async_step_manual` — takes a key obtained outside the cloud (see below); unique_id is the lock's MAC.
 - `async_step_reconfigure` — lets the user edit credentials via the integration's three-dot menu, no delete-and-re-add cycle. **Branches on how the entry was created**: an entry with no `username` has no account to re-prompt for, so it goes to `async_step_reconfigure_manual` and re-opens the key form pre-filled instead.
+
+### Bluetooth discovery
+
+`manifest.json` carries one matcher, `manufacturer_id: 773` with `connectable: false`. 773 is `0x0305`: bleak splits the two leading bytes of the manufacturer data off as the company id, and on a V3 lock those bytes are the protocol type and version themselves. `connectable: false` is what lets a lock heard only through a non-connectable proxy still raise the flow. `loader.py`'s `async_get_bluetooth` reads custom integrations' manifests, so no core-side registration is involved.
+
+Four things shape the flow:
+
+- **The matcher is deliberately broad and the flow is what narrows it.** A manufacturer id is not proof of anything, so `async_step_bluetooth` runs `decode_lock_advertisement` and aborts with `not_a_lock` unless the payload decodes *and* the address it carries matches the one it was heard from — the same cross-check the tracker applies, which is why that decoder is now a module-level function in `advertisement.py` shared by the tracker, the manual key form and the flow.
+- **Both collision checks run.** `_abort_if_unique_id_configured` catches a manual entry, whose unique id is the MAC; `_abort_if_lock_configured` catches a cloud entry, whose unique id is the account. Without the second, a lock already managed through an account would keep offering itself as a new discovery.
+- **Discovery never completes an entry on its own.** The advertisement carries the address and the frame header, never the AES and unlock keys — those exist only in a TTLock account or in whatever provisioned the lock locally. So the confirm step is the ordinary menu, and the manual form is pre-filled from the advertisement (`_discovered_defaults`), which also removes the class of typo the header cross-check exists to catch.
+- **The cloud branch is bound to the lock that was found.** `_discovered_lock_missing_from` rejects an account whose key set does not contain the discovered MAC, because the flow was started from a card naming one lock: creating an entry for a different set of locks and leaving that one unconfigured is not what the user asked for. Started from `async_step_user` there is no discovery, and the check is inert.
+
+Locks older than the 5.3 header are out of reach here — that branch of the decoder reads the protocol type at `raw[4]` under a company id we have no sample of — and they stay on the manual entry point. A TTLock belonging to somebody else, in range, also raises a discovery card; Home Assistant's own "Ignore" is the answer, as it is for every passive BLE integration.
 
 ### Manual key entry
 

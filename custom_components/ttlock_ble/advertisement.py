@@ -18,6 +18,8 @@ from ttlock_ble import LockAdvertisement
 from .const import LOGGER
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from homeassistant.components.bluetooth import (
         BluetoothChange,
         BluetoothServiceInfoBleak,
@@ -78,7 +80,7 @@ class TtlockBleAdvertisementTracker:
         _change: BluetoothChange,
     ) -> None:
         """Publish whatever the advertisement carries, and nothing more."""
-        advertisement = self._decode(mac, service_info)
+        advertisement = decode_lock_advertisement(mac, service_info.manufacturer_data)
         if advertisement is not None:
             self._coordinator.async_apply_advertisement(mac, advertisement)
             return
@@ -92,33 +94,30 @@ class TtlockBleAdvertisementTracker:
             },
         )
 
-    def _decode(
-        self,
-        mac: str,
-        service_info: BluetoothServiceInfoBleak,
-    ) -> LockAdvertisement | None:
-        """
-        Return the entry of `manufacturer_data` that decodes as this lock's state.
 
-        The address the advertisement carries has to match the lock we
-        expect: a payload long enough to decode is not proof that it is a
-        TTLock payload, and the trailing address is the only field with a
-        value we can check independently.
-        """
-        expected = format_mac(mac)
-        for company_id, payload in service_info.manufacturer_data.items():
-            advertisement = LockAdvertisement.from_manufacturer_data(
-                company_id,
-                payload,
-            )
-            if advertisement is None:
-                continue
-            if format_mac(advertisement.lock_mac) == expected:
-                return advertisement
-            LOGGER.debug(
-                "Ignoring advertisement for %s: decoded address %s does not match (%s)",
-                mac,
-                advertisement.lock_mac,
-                payload.hex(),
-            )
-        return None
+def decode_lock_advertisement(
+    mac: str,
+    manufacturer_data: Mapping[int, bytes],
+) -> LockAdvertisement | None:
+    """
+    Return the entry of `manufacturer_data` that decodes as `mac`'s lock state.
+
+    The address the advertisement carries has to match the lock we
+    expect: a payload long enough to decode is not proof that it is a
+    TTLock payload, and the trailing address is the only field with a
+    value we can check independently.
+    """
+    expected = format_mac(mac)
+    for company_id, payload in manufacturer_data.items():
+        advertisement = LockAdvertisement.from_manufacturer_data(company_id, payload)
+        if advertisement is None:
+            continue
+        if format_mac(advertisement.lock_mac) == expected:
+            return advertisement
+        LOGGER.debug(
+            "Ignoring advertisement for %s: decoded address %s does not match (%s)",
+            mac,
+            advertisement.lock_mac,
+            payload.hex(),
+        )
+    return None

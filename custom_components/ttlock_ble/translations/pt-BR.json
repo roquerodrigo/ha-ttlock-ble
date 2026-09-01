@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Configurar TTLock BLE",
@@ -7,6 +8,14 @@
         "menu_options": {
           "cloud": "Entrar com uma conta TTLock",
           "manual": "Inserir uma chave manualmente"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Configurar {name}",
+        "description": "Esta fechadura foi encontrada por Bluetooth. O endereço e o cabeçalho de protocolo já são conhecidos; faltam as chaves, que ficam em uma conta TTLock ou no que tiver inicializado a fechadura localmente.",
+        "menu_options": {
+          "cloud": "Entrar em uma conta TTLock",
+          "manual": "Informar a chave desta fechadura manualmente"
         }
       },
       "cloud": {
@@ -83,13 +92,15 @@
       "invalid_aes_key": "A chave AES precisa ter 16 bytes em hexadecimal.",
       "invalid_unlock_key": "A chave de destravamento aceita apenas dígitos.",
       "invalid_admin_passcode": "A senha de administrador aceita apenas dígitos.",
-      "protocol_mismatch": "A fechadura está anunciando um tipo de protocolo, versão ou cena diferente do que foi informado. Confira os valores nos dados da sua fechadura."
+      "protocol_mismatch": "A fechadura está anunciando um tipo de protocolo, versão ou cena diferente do que foi informado. Confira os valores nos dados da sua fechadura.",
+      "lock_not_in_account": "Esta conta não possui chave para a fechadura encontrada. Entre com a conta dona dela ou informe a chave manualmente."
     },
     "abort": {
       "already_configured": "Esta fechadura ou conta já está configurada.",
       "reauth_successful": "Re-autenticação concluída com sucesso.",
       "reconfigure_successful": "Reconfiguração concluída com sucesso.",
-      "wrong_account": "As credenciais informadas pertencem a outra conta TTLock. Autentique novamente com a conta que originou esta entrada."
+      "wrong_account": "As credenciais informadas pertencem a outra conta TTLock. Autentique novamente com a conta que originou esta entrada.",
+      "not_a_lock": "Este dispositivo Bluetooth não é uma fechadura TTLock."
     }
   },
   "options": {

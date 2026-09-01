@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -658,3 +659,218 @@ async def test_reauth_key_sync_failure_reshows_the_form(
     assert result["step_id"] == "reauth_confirm"
     assert result["errors"] == {"base": "connection"}
     assert entry.data["password"] == "pass"
+
+
+# --- Bluetooth discovery ---------------------------------------------------
+
+DISCOVERED_MAC = "AA:BB:CC:DD:EE:FF"
+DISCOVERED_TAIL = bytes.fromhex("ffeeddccbbaa")
+DISCOVERED_NAME = "S534_ddeeff"
+V3_COMPANY_ID = 0x0305
+
+
+def _discovery_info(
+    *,
+    address: str = DISCOVERED_MAC,
+    manufacturer_data: dict | None = None,
+    name: str = DISCOVERED_NAME,
+) -> MagicMock:
+    """Stand-in for the `BluetoothServiceInfoBleak` the manager hands the flow."""
+    info = MagicMock(name="BluetoothServiceInfoBleak")
+    info.address = address
+    info.name = name
+    info.manufacturer_data = (
+        {V3_COMPANY_ID: bytes([2, 0x00, 70, 0, 0, 0, 0]) + DISCOVERED_TAIL}
+        if manufacturer_data is None
+        else manufacturer_data
+    )
+    return info
+
+
+async def _start_discovery(hass, info: MagicMock | None = None):
+    return await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=info if info is not None else _discovery_info(),
+    )
+
+
+def _schema_defaults(schema) -> dict:
+    """Read the pre-filled values off a rendered form schema."""
+    return {
+        str(marker): marker.default()
+        for marker in schema.schema
+        if marker.default is not vol.UNDEFINED
+    }
+
+
+async def test_bluetooth_discovery_offers_both_routes(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    result = await _start_discovery(hass)
+    assert result["type"] == FlowResultType.MENU
+    assert result["step_id"] == "bluetooth_confirm"
+    assert result["menu_options"] == ["cloud", "manual"]
+    assert result["description_placeholders"] == {"name": DISCOVERED_NAME}
+
+
+async def test_bluetooth_discovery_titles_the_card_with_the_lock(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    result = await _start_discovery(hass)
+    flow = hass.config_entries.flow.async_get(result["flow_id"])
+    assert flow["context"]["title_placeholders"] == {"name": DISCOVERED_NAME}
+
+
+async def test_bluetooth_discovery_falls_back_to_the_address(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """A lock advertising no name is still identified by something."""
+    result = await _start_discovery(hass, _discovery_info(name=""))
+    assert result["description_placeholders"] == {"name": DISCOVERED_MAC}
+
+
+async def test_bluetooth_discovery_ignores_a_foreign_advertisement(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """The manufacturer id alone is not proof the payload is a lock's."""
+    result = await _start_discovery(
+        hass,
+        _discovery_info(manufacturer_data={0x004C: b"\x02\x15"}),
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "not_a_lock"
+
+
+async def test_bluetooth_discovery_rejects_a_mismatched_address(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """A decodable payload carrying somebody else's address is not this lock."""
+    result = await _start_discovery(
+        hass,
+        _discovery_info(
+            manufacturer_data={
+                V3_COMPANY_ID: bytes([2, 0x00, 70, 0, 0, 0, 0])
+                + bytes.fromhex("112233445566"),
+            },
+        ),
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "not_a_lock"
+
+
+async def test_bluetooth_discovery_aborts_for_a_manual_entry(
+    hass,
+    enable_custom_integrations,
+    sample_stored_key,
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"keys": [sample_stored_key]},
+        unique_id="aa:bb:cc:dd:ee:ff",
+    )
+    entry.add_to_hass(hass)
+    result = await _start_discovery(hass)
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_bluetooth_discovery_aborts_for_a_cloud_entry(
+    hass,
+    enable_custom_integrations,
+    sample_stored_key,
+) -> None:
+    """A cloud entry is keyed by the account, so only the key scan catches it."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "user@example.com", "password": "pass"},
+        unique_id="user_example_com",
+    )
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, "keys": [sample_stored_key]},
+    )
+    result = await _start_discovery(hass)
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_bluetooth_discovery_prefills_the_manual_form(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    """What the lock broadcast is what the form no longer asks for."""
+    discovery = await _start_discovery(hass)
+    result = await hass.config_entries.flow.async_configure(
+        discovery["flow_id"], user_input={"next_step_id": "manual"}
+    )
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["lock_mac"] == DISCOVERED_MAC
+    assert defaults["lock_name"] == DISCOVERED_NAME
+    assert defaults["protocol_type"] == 5
+    assert defaults["protocol_version"] == 3
+    assert defaults["scene"] == 2
+    assert defaults["aes_key"] == ""
+    assert defaults["unlock_key"] == ""
+
+
+async def test_manual_step_without_discovery_keeps_its_own_defaults(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    menu = await _start_menu(hass)
+    result = await hass.config_entries.flow.async_configure(
+        menu["flow_id"], user_input={"next_step_id": "manual"}
+    )
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["lock_mac"] == ""
+    assert defaults["protocol_type"] == 5
+
+
+async def test_bluetooth_discovery_cloud_branch_creates_the_entry(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    discovery = await _start_discovery(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        menu = await hass.config_entries.flow.async_configure(
+            discovery["flow_id"], user_input={"next_step_id": "cloud"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            menu["flow_id"], user_input=USER_INPUT
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["keys"][0]["lockMac"] == DISCOVERED_MAC
+
+
+async def test_bluetooth_discovery_cloud_branch_rejects_a_foreign_account(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    """Signing in with an account that does not hold the found lock is a mistake."""
+    other = _discovery_info(
+        address="11:22:33:44:55:66",
+        manufacturer_data={
+            V3_COMPANY_ID: bytes([2, 0x00, 70, 0, 0, 0, 0])
+            + bytes.fromhex("665544332211"),
+        },
+    )
+    discovery = await _start_discovery(hass, other)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        menu = await hass.config_entries.flow.async_configure(
+            discovery["flow_id"], user_input={"next_step_id": "cloud"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            menu["flow_id"], user_input=USER_INPUT
+        )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "lock_not_in_account"}
+    assert not hass.config_entries.async_entries(DOMAIN)
