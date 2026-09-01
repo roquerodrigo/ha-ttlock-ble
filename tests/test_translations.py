@@ -102,3 +102,26 @@ def test_no_empty_translation_values():
             for part in key.split("."):
                 value = value[part]
             assert value, f"{path.name} has empty value for {key}"
+
+
+@pytest.mark.parametrize("locale", [f.stem for f in _translation_files()])
+def test_config_step_titles_carry_no_placeholder(locale):
+    """
+    A step title is rendered without the step's placeholders.
+
+    Home Assistant localizes config-step titles in contexts that pass no
+    `description_placeholders` — the add-integration dialog among them —
+    so a `{name}` there resolves to nothing and the frontend logs a
+    formatting failure on every render. The placeholder belongs in the
+    step's `description`, or in `flow_title`, which is only formatted
+    when the flow actually carries title placeholders.
+    """
+    steps = json.loads(
+        (TRANSLATIONS_DIR / f"{locale}.json").read_text(encoding="utf-8"),
+    )["config"]["step"]
+    offenders = {
+        step_id: body["title"]
+        for step_id, body in steps.items()
+        if "{" in body.get("title", "")
+    }
+    assert not offenders, f"{locale}.json step titles use placeholders: {offenders}"

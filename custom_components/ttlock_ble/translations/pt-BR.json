@@ -11,8 +11,8 @@
         }
       },
       "bluetooth_confirm": {
-        "title": "Configurar {name}",
-        "description": "Esta fechadura foi encontrada por Bluetooth. O endereço e o cabeçalho de protocolo já são conhecidos; faltam as chaves, que ficam em uma conta TTLock ou no que tiver inicializado a fechadura localmente.",
+        "title": "Configurar TTLock BLE",
+        "description": "**{name}** foi encontrada por Bluetooth. O endereço e o cabeçalho de protocolo já são conhecidos; faltam as chaves, que ficam em uma conta TTLock ou no que tiver inicializado a fechadura localmente.",
         "menu_options": {
           "cloud": "Entrar em uma conta TTLock",
           "manual": "Informar a chave desta fechadura manualmente"

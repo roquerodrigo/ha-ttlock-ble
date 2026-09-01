@@ -11,8 +11,8 @@
         }
       },
       "bluetooth_confirm": {
-        "title": "Set up {name}",
-        "description": "This lock was found over Bluetooth. Its address and protocol header are already known; what is still missing are its keys, which live either in a TTLock account or in whatever provisioned the lock locally.",
+        "title": "Set up TTLock BLE",
+        "description": "**{name}** was found over Bluetooth. Its address and protocol header are already known; what is still missing are its keys, which live either in a TTLock account or in whatever provisioned the lock locally.",
         "menu_options": {
           "cloud": "Sign in to a TTLock account",
           "manual": "Enter this lock's key manually"
