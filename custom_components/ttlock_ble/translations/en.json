@@ -121,6 +121,32 @@
     "binary_sensor": {
       "connection": {
         "name": "Bluetooth connection"
+      },
+      "passage_mode_active": {
+        "name": "Passage mode active"
+      }
+    },
+    "button": {
+      "sync_clock": {
+        "name": "Sync clock"
+      },
+      "sync_log": {
+        "name": "Sync log"
+      },
+      "refresh_state": {
+        "name": "Refresh state"
+      },
+      "sync_passcodes": {
+        "name": "Sync passcodes"
+      },
+      "sync_cards": {
+        "name": "Sync cards"
+      },
+      "sync_fingerprints": {
+        "name": "Sync fingerprints"
+      },
+      "sync_passage_mode": {
+        "name": "Sync passage mode"
       }
     },
     "event": {
@@ -144,6 +170,11 @@
         "name": "Lock"
       }
     },
+    "number": {
+      "auto_lock_time": {
+        "name": "Auto-lock time"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Battery"
@@ -153,11 +184,32 @@
       },
       "last_seen": {
         "name": "Last seen"
+      },
+      "last_unlock_method": {
+        "name": "Last unlock method"
+      },
+      "passcodes_count": {
+        "name": "Passcodes count"
+      },
+      "cards_count": {
+        "name": "Cards count"
+      },
+      "fingerprints_count": {
+        "name": "Fingerprints count"
+      },
+      "passage_mode_schedule": {
+        "name": "Passage mode schedule"
       }
     },
     "switch": {
       "sound": {
         "name": "Sound"
+      },
+      "auto_lock": {
+        "name": "Auto-lock"
+      },
+      "passage_mode": {
+        "name": "Passage mode"
       }
     }
   }

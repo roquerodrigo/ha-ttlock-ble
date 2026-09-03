@@ -248,6 +248,7 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
         attributes: TtlockBleLogEventAttributes = {
             "record_type": _record_type_name(entry.record_type),
             "battery": entry.lock_battery,
+            "record_number": entry.record_number,
         }
         if entry.operate_date is not None:
             attributes["timestamp"] = entry.operate_date.isoformat()

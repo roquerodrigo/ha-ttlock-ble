@@ -23,6 +23,7 @@ from .lock_state import TtlockBleLockState
 from .log_cursor import TtlockBleLogCursor
 from .manual_key_input import TtlockBleManualKeyInput
 from .options_data import TtlockBleOptionsData
+from .passage_schedule import TtlockBlePassageSchedule
 from .runtime import TtlockBleData
 from .stored_key import TtlockBleStoredKey
 from .stored_lock_version import TtlockBleStoredLockVersion
@@ -53,6 +54,7 @@ __all__ = [
     "TtlockBleLogEventAttributes",
     "TtlockBleManualKeyInput",
     "TtlockBleOptionsData",
+    "TtlockBlePassageSchedule",
     "TtlockBleStoredKey",
     "TtlockBleStoredLockVersion",
     "TtlockBleVerificationInput",

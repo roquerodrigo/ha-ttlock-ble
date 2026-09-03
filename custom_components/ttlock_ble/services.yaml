@@ -1,0 +1,224 @@
+get_passage_mode:
+  name: Get passage mode
+  description: Retrieve all configured passage mode schedule intervals from a TTLock smart lock over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+set_passage_mode:
+  name: Set passage mode
+  description: Configure one or more passage mode schedule intervals on a TTLock smart lock over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+  fields:
+    start_time:
+      name: Start time
+      description: The time when passage mode begins (HH:MM).
+      example: "08:00"
+      selector:
+        time: {}
+    end_time:
+      name: End time
+      description: The time when passage mode ends (HH:MM).
+      example: "17:00"
+      selector:
+        time: {}
+    days:
+      name: Days
+      description: Day(s) of the week for the passage mode interval.
+      example: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Everyday
+              value: everyday
+            - label: Monday
+              value: monday
+            - label: Tuesday
+              value: tuesday
+            - label: Wednesday
+              value: wednesday
+            - label: Thursday
+              value: thursday
+            - label: Friday
+              value: friday
+            - label: Saturday
+              value: saturday
+            - label: Sunday
+              value: sunday
+    all_day:
+      name: All day
+      description: Whether the passage mode interval covers the entire 24-hour day (00:00 to 23:59).
+      default: false
+      selector:
+        boolean: {}
+    clear_existing:
+      name: Clear existing
+      description: If true, removes all currently configured passage mode intervals before adding the new schedule.
+      default: false
+      selector:
+        boolean: {}
+
+delete_passage_mode:
+  name: Delete passage mode
+  description: Delete a specific passage mode schedule interval from a TTLock smart lock.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+  fields:
+    start_time:
+      name: Start time
+      description: The start time of the interval to delete (HH:MM).
+      required: true
+      example: "08:00"
+      selector:
+        time: {}
+    end_time:
+      name: End time
+      description: The end time of the interval to delete (HH:MM).
+      required: true
+      example: "17:00"
+      selector:
+        time: {}
+    days:
+      name: Day
+      description: The day of the interval to delete.
+      selector:
+        select:
+          options:
+            - label: Everyday
+              value: everyday
+            - label: Monday
+              value: monday
+            - label: Tuesday
+              value: tuesday
+            - label: Wednesday
+              value: wednesday
+            - label: Thursday
+              value: thursday
+            - label: Friday
+              value: friday
+            - label: Saturday
+              value: saturday
+            - label: Sunday
+              value: sunday
+
+clear_passage_mode:
+  name: Clear passage mode
+  description: Remove all configured passage mode schedule intervals from a TTLock smart lock.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+get_auto_lock_time:
+  name: Get auto-lock time
+  description: Query the lock's current auto-lock duration (in seconds) and hardware limits over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+get_lock_time:
+  name: Get lock clock
+  description: Read the lock's internal hardware clock over Bluetooth and calculate drift against Home Assistant local time.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+get_operation_log:
+  name: Get operation log
+  description: Fetch recent operation event records directly from the lock's on-chip memory over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+  fields:
+    max_entries:
+      name: Max entries
+      description: Maximum number of log records to fetch.
+      default: 50
+      example: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    from_sequence:
+      name: From sequence
+      description: Optional starting sequence number. If omitted, automatically starts at the latest records window (highest seen - max_entries + 1).
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    to_sequence:
+      name: To sequence
+      description: Optional ending sequence number (inclusive).
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    start_date:
+      name: Start date
+      description: Filter log records occurring on or after this timestamp (e.g. "2026-09-01" or "2026-09-01 08:00").
+      example: "2026-09-01"
+      selector:
+        text: {}
+    end_date:
+      name: End date
+      description: Filter log records occurring on or before this timestamp (e.g. "2026-09-02" or "2026-09-02 23:59").
+      example: "2026-09-02"
+      selector:
+        text: {}
+
+get_passcodes:
+  name: Get passcodes
+  description: Query all programmed keyboard passcodes (PINs), types, and validity periods from the lock over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+get_cards:
+  name: Get IC cards
+  description: Query all enrolled RFID / IC cards and validity periods from the lock over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock
+
+get_fingerprints:
+  name: Get fingerprints
+  description: Query all enrolled biometric fingerprints and validity periods from the lock over Bluetooth.
+  target:
+    device:
+      integration: ttlock_ble
+    entity:
+      integration: ttlock_ble
+      domain: lock

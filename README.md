@@ -14,6 +14,13 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 ## Features
 
 - **Local BLE control** — lock, unlock, and state queries run over the lock's BLE link; the TTLock cloud is only contacted once at setup to download per-lock keys.
+- **Passage Mode management** — configure single or multi-interval schedules (daily, weekly, specific days) on the lock over Bluetooth. Includes quick dashboard toggle (`switch`), real-time active status (`binary_sensor`) with 0% lock battery impact (exact boundary timestamps), and dynamic upcoming schedule inspection (`sensor`).
+- **Auto-Lock configuration** — customize relock delays directly from Home Assistant using a delay slider (`number`, 0 to 900s) or enable/disable toggle (`switch`).
+- **Enrolled Credential counts** — diagnostic sensors reporting the total number of PIN passcodes, RFID/IC cards, and biometric fingerprints enrolled on the lock. Locks without fingerprint sensors report 0 gracefully.
+- **Detailed Unlock History** — human-readable last unlock method sensor (`Fingerprint`, `Passcode`, `RFID Card`, `Mobile App`, `Auto-Lock`, `Mechanical Key`, etc.) with sequence number, timestamp, credential ID, and user ID attributes.
+- **Action buttons** — trigger on-demand Bluetooth syncs directly from the dashboard: calibrate hardware clock, sync operation log, refresh state, sync passcodes, sync cards, sync fingerprints, and sync passage mode schedules.
+- **Rich Bluetooth Actions (Services)** — programmatic access to configure or clear passage schedules, query auto-lock limits, read lock hardware clock, fetch operation log records with date filtering, and query enrolled passcodes, cards, and fingerprints.
+- **State persistence** — sensors preserve counts, unlock history, and schedules across Home Assistant restarts and integration reloads (`RestoreEntity`).
 - **Real-time push events** — keypad presses, fingerprint reads, IC-card swipes, mechanical key turns, and auto-lock fires arrive as Home Assistant events the moment the lock emits them.
 - **Battery sensor** — diagnostic entity refreshed by every poll *and* every push, no extra BLE traffic.
 - **Clock alignment** — the lock's own clock, which stamps every operation-log record, is compared against local time once a day on a session something else already opened, and corrected when it has wandered. A diagnostic sensor reports the measured drift.
@@ -28,19 +35,69 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 
 ## Entities
 
-Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to seven entities:
+Each configured lock produces one HA device, carrying up to 23 entities across 7 domains:
 
-| Entity | Domain | Purpose |
-|---|---|---|
-| `lock.<alias>` | `lock` | Locked/unlocked state, with optimistic updates, `locking`/`unlocking` transitional states and a post-command settle window. |
-| `sensor.<alias>_battery` | `sensor` | Battery percentage (diagnostic). |
-| `binary_sensor.<alias>_bluetooth_connection` | `binary_sensor` | Whether a BLE session is open right now (connectivity, diagnostic). A healthy idle lock holds none, so `off` says nothing about whether the lock is reachable. |
-| `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
-| `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
-| `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
-| `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep. Assumed state — the firmware reports no readback — and only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
+| Entity | Domain | Category | Purpose |
+|---|---|---|---|
+| `lock.<alias>` | `lock` | Control | Locked/unlocked state, with optimistic updates, `locking`/`unlocking` transitional states and a post-command settle window. |
+| `switch.<alias>_passage_mode` | `switch` | Config | Quick toggle to turn passage mode on or off. Turning ON configures passage mode on the lock; turning OFF clears passage mode. |
+| `switch.<alias>_auto_lock` | `switch` | Config | Enable or disable auto-relocking. Disabling sets delay to 0; enabling restores previous delay. |
+| `switch.<alias>_sound` | `switch` | Config | The lock's keypad/lock beep (admin keys only). |
+| `number.<alias>_auto_lock_time` | `number` | Config | Auto-lock delay duration in seconds (`0` disables auto-lock). |
+| `binary_sensor.<alias>_passage_mode_active` | `binary_sensor` | Diagnostic | Real-time state whether passage mode is currently holding the door unlocked (`on`/`off`). Evaluates schedules in HA memory at exact boundary timestamps with 0% battery drain on the lock. |
+| `binary_sensor.<alias>_connection` | `binary_sensor` | Diagnostic | Whether a BLE session is open right now. A healthy idle lock holds none, so `off` means idle, not unreachable. |
+| `sensor.<alias>_battery` | `sensor` | Diagnostic | Battery percentage. |
+| `sensor.<alias>_last_seen` | `sensor` | Diagnostic | When the lock was last heard from, read from HA's own advertisement history. |
+| `sensor.<alias>_clock_drift` | `sensor` | Diagnostic | Drift of the lock's internal hardware clock against local time, in seconds. |
+| `sensor.<alias>_last_unlock_method` | `sensor` | Diagnostic | Formatted last unlock operator (e.g. `Fingerprint (66051)`, `Passcode`, `RFID Card (12345)`, `Mobile App`, `Auto-Lock`, `Mechanical Key`) with sequence number, credential ID, and timestamp attributes. |
+| `sensor.<alias>_passage_mode_schedule` | `sensor` | Diagnostic | Dynamic passage status (`Active (until HH:MM)`, `Next: Today HH:MM`, or `No schedule`) with `today_slots` and full schedule list attributes. |
+| `sensor.<alias>_passcodes_count` | `sensor` | Diagnostic | Total number of PIN passcodes stored on the lock chip. |
+| `sensor.<alias>_cards_count` | `sensor` | Diagnostic | Total number of RFID / IC cards enrolled on the lock chip. |
+| `sensor.<alias>_fingerprints_count` | `sensor` | Diagnostic | Total number of enrolled fingerprints on the lock chip (`0` if lock lacks fingerprint hardware). |
+| `button.<alias>_sync_clock` | `button` | Config | Calibrate the lock's hardware clock to Home Assistant local time. |
+| `button.<alias>_sync_log` | `button` | Diagnostic | Sync new operation-log records from the lock. |
+| `button.<alias>_refresh_state` | `button` | Diagnostic | Force an immediate Bluetooth query to update lock state and battery. |
+| `button.<alias>_sync_passcodes` | `button` | Diagnostic | Query programmed passcodes over Bluetooth in the background and update the passcodes count sensor. |
+| `button.<alias>_sync_cards` | `button` | Diagnostic | Query enrolled IC/RFID cards over Bluetooth in the background and update the cards count sensor. |
+| `button.<alias>_sync_fingerprints` | `button` | Diagnostic | Query enrolled fingerprints over Bluetooth in the background and update the fingerprints count sensor. |
+| `button.<alias>_sync_passage_mode` | `button` | Diagnostic | Query passage mode schedules over Bluetooth in the background and update passage sensors. |
+| `event.<alias>_log` | `event` | — | Fires for every new operation-log record read from the lock. |
 
 The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
+
+## Actions (Services)
+
+The integration registers custom actions under the `ttlock_ble` domain to inspect, configure, and manage lock settings over Bluetooth.
+
+| Action | Description | Target |
+|---|---|---|
+| `ttlock_ble.set_passage_mode` | Configure one or more passage mode intervals on the lock. Supports `slots` (list of schedules), `start_time`, `end_time`, `days` (or `everyday`), `all_day`, and `clear_existing`. | Lock entity / device |
+| `ttlock_ble.get_passage_mode` | Read all configured passage mode schedule intervals directly from lock memory over Bluetooth. | Lock entity / device |
+| `ttlock_ble.delete_passage_mode` | Delete a specific passage mode interval by start time, end time, and day. | Lock entity / device |
+| `ttlock_ble.clear_passage_mode` | Remove all configured passage mode schedule intervals from the lock. | Lock entity / device |
+| `ttlock_ble.get_auto_lock_time` | Query current auto-lock duration in seconds and the lock hardware's supported min/max limits. | Lock entity / device |
+| `ttlock_ble.get_lock_time` | Query the lock's internal real-time hardware clock and compute current drift relative to Home Assistant local time. | Lock entity / device |
+| `ttlock_ble.get_operation_log` | Fetch recent operation-log records from the lock's on-chip memory. Supports `max_entries`, `from_sequence`, `to_sequence`, `start_date`, and `end_date`. | Lock entity / device |
+| `ttlock_ble.get_passcodes` | Query all programmed keyboard passcodes (PINs), passcode types, and validity periods. | Lock entity / device |
+| `ttlock_ble.get_cards` | Query all enrolled RFID / IC cards, card numbers, and validity periods. | Lock entity / device |
+| `ttlock_ble.get_fingerprints` | Query all enrolled biometric fingerprints, IDs, and validity periods. | Lock entity / device |
+
+### Example: Setting Passage Mode Schedule
+
+```yaml
+action: ttlock_ble.set_passage_mode
+target:
+  entity_id: lock.front_door
+data:
+  clear_existing: true
+  slots:
+    - start_time: "08:00"
+      end_time: "17:00"
+      days: "everyday"
+    - start_time: "13:00"
+      end_time: "15:00"
+      days: "friday"
+```
 
 ## Installation
 
@@ -115,15 +172,17 @@ rm config/.storage/core.entity_registry config/.storage/core.device_registry
 
 ```
 custom_components/ttlock_ble/
-├── __init__.py        # config-entry lifecycle: setup / unload / reload
+├── __init__.py        # config-entry lifecycle & service registrations
 ├── advertisement.py   # TtlockBleAdvertisementTracker: state from advertisements
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
-├── binary_sensor.py   # TtlockBleConnectionBinarySensor: live BLE link state
+├── binary_sensor.py   # BLE connection and passage mode active binary sensors
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
+├── button.py          # Action buttons (clock sync, log sync, state refresh, credential sync)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
-├── const.py           # DOMAIN, LOGGER, defaults
+├── const.py           # DOMAIN, LOGGER, service constants, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection
+├── credentials.py     # BLE exchange handlers for passcodes, cards, and fingerprints
 ├── data/              # one TypedDict/dataclass per file + type aliases in __init__.py
 ├── device_description_store.py  # per-lock model / hardware / firmware, persisted
 ├── diagnostics.py     # redacted credentials/keys
@@ -131,13 +190,17 @@ custom_components/ttlock_ble/
 ├── event.py           # TtlockBleLogEvent: operation-log records as HA events
 ├── exceptions/        # one file per exception class
 ├── lock.py            # TtlockBleLock: LockEntity backed by the connection
-├── manifest.json
+├── manifest.json      # integration metadata and dependencies
 ├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
+├── number.py          # TtlockBleAutoLockTimeNumber: auto-lock delay slider
 ├── options_flow.py    # TtlockBleOptionsFlow: permanent_connection
+├── passage.py         # BLE frame builders and parsers for passage mode
 ├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
-├── sensor.py          # battery, last-seen and clock-drift sensors
-├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
+├── sensor.py          # battery, last-seen, clock drift, unlock method, credential count sensors
+├── services.py        # implementations for all custom ttlock_ble actions
+├── services.yaml      # action schemas, field descriptors, and selectors
+├── switch.py          # sound, auto-lock, and passage mode switches
 └── translations/
     ├── en.json
     └── pt-BR.json

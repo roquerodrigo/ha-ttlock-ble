@@ -121,6 +121,32 @@
     "binary_sensor": {
       "connection": {
         "name": "Conexão Bluetooth"
+      },
+      "passage_mode_active": {
+        "name": "Modo de passagem ativo"
+      }
+    },
+    "button": {
+      "sync_clock": {
+        "name": "Sincronizar relógio"
+      },
+      "sync_log": {
+        "name": "Sincronizar registros"
+      },
+      "refresh_state": {
+        "name": "Atualizar estado"
+      },
+      "sync_passcodes": {
+        "name": "Sincronizar senhas"
+      },
+      "sync_cards": {
+        "name": "Sincronizar cartões"
+      },
+      "sync_fingerprints": {
+        "name": "Sincronizar digitais"
+      },
+      "sync_passage_mode": {
+        "name": "Sincronizar modo de passagem"
       }
     },
     "event": {
@@ -144,6 +170,11 @@
         "name": "Fechadura"
       }
     },
+    "number": {
+      "auto_lock_time": {
+        "name": "Tempo de travamento automático"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Bateria"
@@ -153,11 +184,32 @@
       },
       "last_seen": {
         "name": "Visto por último"
+      },
+      "last_unlock_method": {
+        "name": "Último método de abertura"
+      },
+      "passcodes_count": {
+        "name": "Quantidade de senhas"
+      },
+      "cards_count": {
+        "name": "Quantidade de cartões"
+      },
+      "fingerprints_count": {
+        "name": "Quantidade de digitais"
+      },
+      "passage_mode_schedule": {
+        "name": "Programação do modo de passagem"
       }
     },
     "switch": {
       "sound": {
         "name": "Som"
+      },
+      "auto_lock": {
+        "name": "Travamento automático"
+      },
+      "passage_mode": {
+        "name": "Modo de passagem"
       }
     }
   }

@@ -28,7 +28,7 @@ from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from ttlock_ble import LockState
+from ttlock_ble import LockState, TTLockError
 
 from .const import DOMAIN, LOGGER
 
@@ -150,6 +150,49 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
     def async_clock_sync(self, mac: str) -> TtlockBleClockSync | None:
         """Return the last clock comparison for `mac`, if there was one."""
         return self._clock_syncs.get(mac)
+
+    async def async_sync_clock_now(self, connection: TtlockBleConnection) -> None:
+        """Manually synchronize and correct the lock clock on demand."""
+        mac = connection.key.lockMac
+        before = dt_util.now()
+        lock_time = await connection.async_get_lock_time()
+        if lock_time is None:
+            raise TTLockError(f"Could not read clock from lock {mac}")
+        reference = before + (dt_util.now() - before) / 2
+        drift = (lock_time - reference.replace(tzinfo=None)).total_seconds()
+        LOGGER.info("Manual clock check for %s: drift was %+.1fs", mac, drift)
+        self._clock_syncs.async_remember(
+            mac,
+            {"checked_at": dt_util.utcnow().isoformat(), "drift_seconds": drift},
+        )
+        self.async_update_listeners()
+        if not connection.key.adminPs.isdigit():
+            raise TTLockError(
+                f"Cannot calibrate clock on {mac}: key carries no admin password"
+            )
+        calibrated = await connection.async_calibrate_time(
+            dt_util.now().replace(tzinfo=None)
+        )
+        if not calibrated:
+            raise TTLockError(f"Clock calibration failed for {mac}")
+        self._clock_syncs.async_remember(
+            mac,
+            {"checked_at": dt_util.utcnow().isoformat(), "drift_seconds": 0.0},
+        )
+        self.async_update_listeners()
+
+    async def async_poll_lock(self, connection: TtlockBleConnection) -> None:
+        """Manually refresh state, battery, and operation log for a lock."""
+        mac = connection.key.lockMac
+        data = await self._async_poll(connection)
+        current_data = dict(self.data or {})
+        prev_data = current_data.get(mac, {})
+        if data.get("locked") is None and prev_data.get("locked") is not None:
+            data["locked"] = prev_data["locked"]
+        if data.get("battery_level") is None and prev_data.get("battery_level") is not None:
+            data["battery_level"] = prev_data["battery_level"]
+        current_data[mac] = data
+        self.async_set_updated_data(current_data)
 
     @callback
     def async_has_state(self, mac: str) -> bool:

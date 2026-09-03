@@ -16,15 +16,28 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.util import dt as dt_util
 
 from ttlock_ble import TTLockClient, TTLockError
 
 from .const import DOMAIN, LOGGER
+from .credentials import (
+    async_client_get_fingerprints,
+    async_client_get_ic_cards,
+    async_client_get_passcodes,
+)
 from .data import TtlockBleLogCursor
+from .passage import (
+    async_client_clear_passage_mode,
+    async_client_delete_passage_mode,
+    async_client_get_passage_mode,
+    async_client_set_passage_mode,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -33,6 +46,8 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from ttlock_ble import DeviceInfo, LockEvent, LockState, LogEntry, VirtualKey
+
+    from .data import TtlockBlePassageSchedule
 
 
 RECONNECT_INITIAL_BACKOFF = 1.0
@@ -60,6 +75,21 @@ def log_signal(mac: str) -> str:
 def connection_signal(mac: str) -> str:
     """Dispatcher signal that carries BLE up/down transitions for `mac`."""
     return f"{DOMAIN}_connection_{mac.lower()}"
+
+
+def auto_lock_signal(mac: str) -> str:
+    """Dispatcher signal that carries auto-lock delay changes for `mac`."""
+    return f"{DOMAIN}_auto_lock_{mac.lower()}"
+
+
+def passage_mode_signal(mac: str) -> str:
+    """Dispatcher signal that carries passage mode state changes for `mac`."""
+    return f"{DOMAIN}_passage_mode_{mac.lower()}"
+
+
+def credentials_count_signal(mac: str) -> str:
+    """Dispatcher signal that carries credential count changes for `mac`."""
+    return f"{DOMAIN}_credentials_count_{mac.lower()}"
 
 
 class TtlockBleConnection:
@@ -94,6 +124,16 @@ class TtlockBleConnection:
         self._log_seeded = cursor.seeded
         self._on_records_seen = cursor.on_move
         self._broadcast_connected = False
+        self._auto_lock_seconds: int | None = None
+        self._auto_lock_limits: tuple[int | None, int | None] = (None, None)
+        self._last_active_auto_lock: int = 10
+        self._passage_mode_active: bool | None = None
+        self._passage_schedules: list[TtlockBlePassageSchedule] = []
+        self._credentials_counts: dict[str, int | None] = {
+            "passcodes": None,
+            "cards": None,
+            "fingerprints": None,
+        }
 
     @property
     def key(self) -> VirtualKey:
@@ -104,6 +144,57 @@ class TtlockBleConnection:
     def is_connected(self) -> bool:
         """True iff the underlying `TTLockClient` is currently connected."""
         return self._client is not None and self._client.is_connected
+
+    @property
+    def auto_lock_seconds(self) -> int | None:
+        """Return the currently cached auto-lock delay in seconds."""
+        return self._auto_lock_seconds
+
+    @property
+    def auto_lock_limits(self) -> tuple[int | None, int | None]:
+        """Return the min/max auto-lock delay supported by hardware."""
+        return self._auto_lock_limits
+
+    @property
+    def last_active_auto_lock(self) -> int:
+        """Return the last active non-zero auto-lock delay."""
+        return self._last_active_auto_lock
+
+    @property
+    def passage_mode_active(self) -> bool | None:
+        """Return whether passage mode is currently known to be enabled."""
+        return self._passage_mode_active
+
+    @property
+    def passage_schedules(self) -> list[TtlockBlePassageSchedule]:
+        """Return cached passage mode schedule slots."""
+        return self._passage_schedules
+
+    def get_credential_count(self, cred_type: str) -> int | None:
+        """Return cached count for a credential type."""
+        return self._credentials_counts.get(cred_type)
+
+    def set_credential_count(self, cred_type: str, count: int) -> None:
+        """Update cached count for a credential type and notify listeners."""
+        self._credentials_counts[cred_type] = count
+        async_dispatcher_send(
+            self._hass,
+            credentials_count_signal(self._key.lockMac),
+            cred_type,
+            count,
+        )
+
+    async def async_fetch_credentials_count(self, cred_type: str) -> int | None:
+        """Fetch credentials of given type over BLE and update count."""
+        if cred_type == "passcodes":
+            creds = await self.async_get_passcodes()
+        elif cred_type == "cards":
+            creds = await self.async_get_cards()
+        elif cred_type == "fingerprints":
+            creds = await self.async_get_fingerprints()
+        else:
+            return None
+        return len(creds)
 
     async def async_start(self) -> None:
         """
@@ -253,6 +344,278 @@ class TtlockBleConnection:
     async def async_set_lock_sound(self, *, enabled: bool) -> None:
         """Turn the lock's beep on or off (raises on failure)."""
         await self._async_run_command("sound_on" if enabled else "sound_off")
+
+    async def async_get_passage_mode(self) -> list[TtlockBlePassageSchedule]:
+        """Fetch all passage mode schedule slots from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            schedules = await async_client_get_passage_mode(client)
+            self._passage_schedules = schedules
+            self._passage_mode_active = bool(schedules)
+            async_dispatcher_send(
+                self._hass,
+                passage_mode_signal(self._key.lockMac),
+                schedules,
+            )
+            return schedules
+
+    async def async_set_passage_mode(
+        self,
+        schedules: list[TtlockBlePassageSchedule],
+        *,
+        clear_existing: bool = False,
+    ) -> None:
+        """Set one or more passage mode schedule slots on the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            await async_client_set_passage_mode(
+                client,
+                schedules,
+                clear_existing=clear_existing,
+            )
+            self._passage_schedules = schedules
+            self._passage_mode_active = bool(schedules)
+            async_dispatcher_send(
+                self._hass,
+                passage_mode_signal(self._key.lockMac),
+                schedules,
+            )
+
+    async def async_delete_passage_mode(
+        self,
+        schedule: TtlockBlePassageSchedule,
+    ) -> None:
+        """Delete a specific passage mode schedule slot from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            await async_client_delete_passage_mode(client, schedule)
+
+    async def async_clear_passage_mode(self) -> None:
+        """Clear all passage mode schedule slots from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            await async_client_clear_passage_mode(client)
+            self._passage_schedules = []
+            self._passage_mode_active = False
+            async_dispatcher_send(
+                self._hass,
+                passage_mode_signal(self._key.lockMac),
+                [],
+            )
+
+    async def async_get_auto_lock_info(self) -> dict[str, Any]:
+        """Fetch current auto-lock duration and hardware limits."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            seconds = await client.get_auto_lock_time()
+            min_sec: int | None = None
+            max_sec: int | None = None
+            try:
+                limits = await client.get_auto_lock_limits()
+                min_sec = limits.min_allowed
+                max_sec = limits.max_allowed
+            except Exception:  # noqa: BLE001
+                pass
+            self._auto_lock_seconds = seconds
+            if seconds > 0:
+                self._last_active_auto_lock = seconds
+            self._auto_lock_limits = (min_sec, max_sec)
+            async_dispatcher_send(
+                self._hass,
+                auto_lock_signal(self._key.lockMac),
+                seconds,
+            )
+            return {
+                "auto_lock_seconds": seconds,
+                "enabled": seconds > 0,
+                "min_seconds": min_sec,
+                "max_seconds": max_sec,
+            }
+
+    async def async_set_auto_lock_time(self, seconds: int) -> None:
+        """Set auto-lock delay in seconds (0 = disabled)."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            await client.set_auto_lock_time(seconds)
+            self._auto_lock_seconds = seconds
+            if seconds > 0:
+                self._last_active_auto_lock = seconds
+            async_dispatcher_send(
+                self._hass,
+                auto_lock_signal(self._key.lockMac),
+                seconds,
+            )
+
+    async def async_get_lock_clock(self) -> dict[str, Any]:
+        """Read the lock's real-time hardware clock and compute drift."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            before = dt_util.now()
+            lock_time = await client.get_lock_time()
+            if lock_time is None:
+                raise TTLockError(f"Could not read clock from lock {self._key.lockMac}")
+            reference = before + (dt_util.now() - before) / 2
+            drift = (lock_time - reference.replace(tzinfo=None)).total_seconds()
+            return {
+                "lock_time": lock_time.isoformat(),
+                "local_time": reference.isoformat(),
+                "drift_seconds": round(drift, 1),
+            }
+
+    async def async_fetch_operation_log(
+        self,
+        max_entries: int = 50,
+        from_sequence: int | None = None,
+        to_sequence: int | None = None,
+        start_date: dt.datetime | str | None = None,
+        end_date: dt.datetime | str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch raw operation log records from the lock for display/inspection."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+
+            target_start_record: int | None = None
+            if from_sequence is not None:
+                target_start_record = from_sequence
+            elif to_sequence is not None:
+                target_start_record = max(0, to_sequence - max_entries + 1)
+            elif self._seen_records:
+                highest_seen = max(self._seen_records)
+                target_start_record = max(0, highest_seen - max_entries + 1)
+
+            if target_start_record is not None:
+                seq = target_start_record
+            else:
+                seq = 0xFFFF
+
+            # If filtering by to_sequence or date, fetch enough entries so filtering does not truncate
+            if to_sequence is not None and target_start_record is not None:
+                fetch_count = max(max_entries, (to_sequence - target_start_record + 1)) + 5
+            elif to_sequence is not None or start_date is not None or end_date is not None:
+                fetch_count = max_entries + 50
+            else:
+                fetch_count = max_entries
+
+            entries = await client.get_operation_log(
+                max_entries=fetch_count,
+                from_sequence=seq,
+            )
+            # If default 0xFFFF (unread only) returned nothing, fall back to historical records
+            if not entries and target_start_record is None and seq == 0xFFFF:
+                entries = await client.get_operation_log(
+                    max_entries=fetch_count,
+                    from_sequence=0,
+                )
+
+            # Update known seen records so highest_seen is kept fresh
+            if entries:
+                self._seen_records.update(e.record_number for e in entries)
+
+            # Parse filter bounds if provided
+            dt_start: dt.datetime | None = None
+            if start_date:
+                dt_start = (
+                    start_date
+                    if isinstance(start_date, dt.datetime)
+                    else dt_util.parse_datetime(str(start_date))
+                )
+            dt_end: dt.datetime | None = None
+            if end_date:
+                dt_end = (
+                    end_date
+                    if isinstance(end_date, dt.datetime)
+                    else dt_util.parse_datetime(str(end_date))
+                )
+
+            # Filter entries by sequence range and dates
+            filtered: list[LogEntry] = []
+            for entry in entries:
+                if target_start_record is not None and entry.record_number < target_start_record:
+                    continue
+                if to_sequence is not None and entry.record_number > to_sequence:
+                    continue
+                if dt_start is not None or dt_end is not None:
+                    if entry.operate_date is None:
+                        continue
+                    entry_dt = entry.operate_date.replace(tzinfo=None)
+                    if dt_start is not None and entry_dt < dt_start.replace(tzinfo=None):
+                        continue
+                    if dt_end is not None and entry_dt > dt_end.replace(tzinfo=None):
+                        continue
+                filtered.append(entry)
+
+            # Order newest entries first
+            filtered.sort(key=lambda e: e.record_number, reverse=True)
+            if max_entries:
+                filtered = filtered[:max_entries]
+
+            results: list[dict[str, Any]] = []
+            for entry in filtered:
+                rec_type = entry.record_type
+                rec_type_name = (
+                    rec_type.name if hasattr(rec_type, "name") else str(rec_type)
+                )
+                results.append({
+                    "record_number": entry.record_number,
+                    "record_type": rec_type_name,
+                    "operate_date": (
+                        entry.operate_date.isoformat()
+                        if entry.operate_date
+                        else None
+                    ),
+                    "lock_battery": entry.lock_battery,
+                    "uid": entry.uid,
+                    "record_id": entry.record_id,
+                    "credential": entry.password,
+                    "key_id": entry.key_id,
+                })
+            return results
+
+    async def async_get_passcodes(self) -> list[dict[str, Any]]:
+        """Query all programmed keyboard passcodes from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            passcodes = await async_client_get_passcodes(client)
+            self.set_credential_count("passcodes", len(passcodes))
+            return passcodes
+
+    async def async_get_cards(self) -> list[dict[str, Any]]:
+        """Query all enrolled RFID / IC cards from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            cards = await async_client_get_ic_cards(client)
+            self.set_credential_count("cards", len(cards))
+            return cards
+
+    async def async_get_fingerprints(self) -> list[dict[str, Any]]:
+        """Query all enrolled biometric fingerprints from the lock."""
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                raise TTLockError(f"Lock {self._key.lockMac} is not reachable")
+            fingerprints = await async_client_get_fingerprints(client)
+            self.set_credential_count("fingerprints", len(fingerprints))
+            return fingerprints
 
     async def async_get_operation_log(self) -> list[LogEntry]:
         """

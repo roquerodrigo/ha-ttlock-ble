@@ -25,6 +25,7 @@ from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBleLogCursor
 from .device_description_store import async_get_device_description_store
 from .record_store import async_get_record_store
+from .services import async_setup_services, async_unload_services
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -38,8 +39,10 @@ if TYPE_CHECKING:
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.EVENT,
     Platform.LOCK,
+    Platform.NUMBER,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
@@ -165,6 +168,7 @@ async def async_setup_entry(
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_services(hass)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -180,7 +184,10 @@ async def async_unload_entry(
     registered on the entry at setup time instead, so it also runs when
     setup itself fails part-way through.
     """
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        await async_unload_services(hass)
+    return unload_ok
 
 
 async def async_reload_entry(

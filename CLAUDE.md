@@ -62,15 +62,19 @@ advertisement.py → decodes lock state + battery from the advertisements
 coordinator.py   → publishes the advertised state as it arrives; no polling
                     interval, a refresh only on demand
 lock.py          → LockEntity backed by the BLE connection
-sensor.py        → BatterySensor backed by the same poll + push events, a
-                    LastSeenSensor reading the bluetooth manager's own
-                    advertisement history (see below), and a ClockDriftSensor
-                    reporting how far the lock's own clock has wandered
+sensor.py        → BatterySensor, LastSeenSensor, ClockDriftSensor,
+                    LastUnlockMethodSensor, CredentialCountSensors (passcodes, cards,
+                    fingerprints), and dynamic PassageModeScheduleSensor
 binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
-                    (named "Bluetooth connection": a healthy idle lock holds
-                    no session, so this being off says nothing about reach)
+                    and PassageModeActiveBinarySensor (boundary-scheduled)
 event.py         → EventEntity that surfaces decoded LogEntry records
-switch.py        → the lock's beep; assumed state, admin keys only
+switch.py        → SoundSwitch (beep), AutoLockSwitch, and PassageModeSwitch
+number.py        → AutoLockTimeNumber delay slider (0-900s)
+button.py        → Action buttons for clock calibration, log sync, state refresh,
+                    passcodes/cards/fingerprints count sync, and passage mode sync
+passage.py       → BLE packet encoders/parsers for passage mode schedules
+credentials.py   → BLE packet query handlers for passcodes, cards, and fingerprints
+services.py      → custom Home Assistant actions under ttlock_ble domain
 record_store.py  → persists the operation-log cursor per lock, so a
                     restart resumes instead of re-seeding
 device_description_store.py
