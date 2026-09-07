@@ -50,7 +50,7 @@ The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py`
 
 ### Entry typing
 
-`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs, first_refresh)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 The two stores are the deliberate exception: `record_store.py` and `device_description_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
 
