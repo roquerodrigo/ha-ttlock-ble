@@ -1,5 +1,33 @@
 # Changelog
 
+## [3.10.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.9.0...v3.10.0) (2026-09-07)
+
+
+### Features
+
+* **switch:** read the beep setting back from the lock ([cdf3808](https://github.com/roquerodrigo/ha-ttlock-ble/commit/cdf38084b8da57c17461568f598a3ae48ad4265c))
+
+
+### Dependencies
+
+* **deps:** bump pip from 26.1.2 to 26.2 ([2dad892](https://github.com/roquerodrigo/ha-ttlock-ble/commit/2dad892d3107364e4f3e2847973acdf24988fd4e))
+
+
+### Development Dependencies
+
+* **deps-dev:** bump the python-deps group across 1 directory with 4 updates ([68ab04b](https://github.com/roquerodrigo/ha-ttlock-ble/commit/68ab04bb8ff7c8b044f98e4277e3f3b56bf735d0))
+
+
+### Documentation
+
+* add GitHub Sponsors button and support section ([7260ed8](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7260ed85856661707f6885ecced7294f23adee5d))
+* condense the architecture overview in CLAUDE.md ([254f2ac](https://github.com/roquerodrigo/ha-ttlock-ble/commit/254f2ac8315807eb88a7ebbc849bd33e232252cd))
+
+
+### Miscellaneous Chores
+
+* **deps:** bump ttlock-ble to 0.3.2 ([6597b52](https://github.com/roquerodrigo/ha-ttlock-ble/commit/6597b52b666a665173cb9f53b7d986ed4e17bd1f))
+
 ## [3.9.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.8.0...v3.9.0) (2026-09-01)
 
 
