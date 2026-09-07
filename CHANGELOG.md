@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.10.0...v3.10.1) (2026-09-07)
+
+
+### Documentation
+
+* refresh CLAUDE.md ([44dd25d](https://github.com/roquerodrigo/ha-ttlock-ble/commit/44dd25d45ee7c95e158aa34800d367f5b294cfc3))
+
 ## [3.10.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.9.0...v3.10.0) (2026-09-07)
 
 
