@@ -38,7 +38,7 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
-| `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep. Assumed state — the firmware reports no readback — and only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
+| `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep, read back from the lock on sessions opened for something else and re-read at most hourly. `unknown` until a session has carried a read. Only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
 
 The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
 

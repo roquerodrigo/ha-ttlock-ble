@@ -214,7 +214,7 @@ The lock stamps every operation-log record from an RTC it keeps itself: no NTP, 
 
 ### Sound switch
 
-`switch.py` toggles the lock's keypad/lock beep. Two constraints shape it. It is `assumed_state`, because the firmware has no opcode reporting the setting back — neither a query nor the advertisement carries it — so the entity shows the last value it sent, which stops being true the moment the official app changes it; HA renders that as two buttons rather than one toggle, which is the honest presentation. And it is only created for a key that is both `is_admin()` and carries an `adminPs`: the firmware gates the command behind CHECK_ADMIN, and a manual-key entry usually has neither, where the entity could only ever fail.
+`switch.py` toggles the lock's keypad/lock beep. Two constraints shape it. Its value comes from the coordinator, which reads the setting with `get_lock_sound()` on a session opened for something else — the poll after a command, or an advertised operation-log read that landed — never by connecting for it, and at most once per `SOUND_CHECK_INTERVAL_SECONDS`, because the read costs the admin handshake and the official app is the only thing that changes the setting behind our back. A write the lock accepted is adopted straight away through `async_note_sound_enabled`, and the next paced read confirms it. Until either has happened the entity reports `unknown`. And it is only created for a key that `can_administer` (`key_privileges.py`: both `is_admin()` and an `adminPs`): the firmware gates the command and the read behind CHECK_ADMIN, and a manual-key entry usually has neither, where the entity could only ever fail — the coordinator applies the same test before reading, so such a key is never asked.
 
 ### Diagnostics
 

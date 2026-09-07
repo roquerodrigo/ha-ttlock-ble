@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
-from ttlock_ble import TTLockError
+from ttlock_ble import LockSound, TTLockError
 
 
 def _switch_state(hass):
@@ -16,13 +16,31 @@ async def test_sound_switch_created_for_an_admin_key(hass, setup_integration) ->
 
 
 async def test_sound_switch_starts_without_a_value(hass, setup_integration) -> None:
-    """Nothing reads the setting back, so nothing is known until something sets it."""
+    """Setup opens no session, and nothing connects just to learn the setting."""
     assert _switch_state(hass).state == "unknown"
 
 
-async def test_sound_switch_is_assumed(hass, setup_integration) -> None:
-    """The command can be sent; the answer cannot be read."""
-    assert _switch_state(hass).attributes["assumed_state"] is True
+async def test_sound_switch_is_not_assumed(hass, setup_integration) -> None:
+    """The setting is read from the lock, so one toggle is the honest presentation."""
+    assert "assumed_state" not in _switch_state(hass).attributes
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_sound_switch_follows_what_the_lock_reports(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    enabled,
+) -> None:
+    mock_ttlock_connection.async_get_lock_sound.return_value = LockSound(
+        enabled=enabled, volume=None
+    )
+    state = _switch_state(hass)
+
+    await setup_integration.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(state.entity_id).state == ("on" if enabled else "off")
 
 
 async def test_sound_switch_has_unique_id(

@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 from ttlock_ble import LockState
 
 from .const import DOMAIN, LOGGER
+from .key_privileges import can_administer
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -77,6 +78,12 @@ CLOCK_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
 # on every check and pay for it in battery.
 CLOCK_DRIFT_THRESHOLD_SECONDS = 30.0
 
+# How long between reads of the beep setting. The official app can change
+# it at any time and nothing announces that, so it is re-read on a session
+# opened for something else - but not on every one: the read costs the
+# admin handshake plus its own round trip, and the setting rarely moves.
+SOUND_CHECK_INTERVAL_SECONDS = 60 * 60
+
 # Above this, a correction is worth a line in the log at INFO. A lock
 # does not drift by minutes on its own - a gap that size usually means
 # it was set up on a different wall clock than Home Assistant keeps.
@@ -110,6 +117,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._descriptions = descriptions
         self._clock_syncs = clock_syncs
         self._described: set[str] = set()
+        self._sound_enabled: dict[str, bool] = {}
+        self._sound_checked_at: dict[str, float] = {}
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
@@ -150,6 +159,23 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
     def async_clock_sync(self, mac: str) -> TtlockBleClockSync | None:
         """Return the last clock comparison for `mac`, if there was one."""
         return self._clock_syncs.get(mac)
+
+    @callback
+    def async_sound_enabled(self, mac: str) -> bool | None:
+        """Return whether the beep of `mac` is on, as last read or written."""
+        return self._sound_enabled.get(mac)
+
+    @callback
+    def async_note_sound_enabled(self, mac: str, *, enabled: bool) -> None:
+        """
+        Adopt a value the lock just accepted, without reading it back.
+
+        A raise-free write means the lock took the frame, and reading the
+        setting straight back would spend another handshake to learn what
+        was just sent. The paced read confirms it on a later session.
+        """
+        self._sound_enabled[mac] = enabled
+        self.async_update_listeners()
 
     @callback
     def async_has_state(self, mac: str) -> bool:
@@ -366,6 +392,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             # failure above must not reach the retry bookkeeping below
             # as if the log itself had failed.
             await self._async_align_clock(connection)
+            await self._async_read_sound(connection)
         finally:
             self._log_fetches.discard(mac)
             if self._records_pending.get(mac, False):
@@ -411,6 +438,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             )
         await self._async_describe(connection)
         await self._async_align_clock(connection)
+        await self._async_read_sound(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
@@ -516,6 +544,33 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             dt_util.now().replace(tzinfo=None)
         ):
             LOGGER.debug("Clock correction did not reach %s", mac)
+
+    async def _async_read_sound(self, connection: TtlockBleConnection) -> None:
+        """
+        Read the beep setting on a session another read just opened.
+
+        The firmware reports it only to an admin key, so a key without
+        the admin password is never asked. A read that did not land
+        leaves the pacing untouched, so the next session tries again
+        rather than waiting out an interval for an answer never given.
+        """
+        mac = connection.key.lockMac
+        if not can_administer(connection.key) or not self._async_sound_check_due(mac):
+            return
+        sound = await connection.async_get_lock_sound()
+        if sound is None:
+            return
+        self._sound_checked_at[mac] = self.hass.loop.time()
+        LOGGER.debug("Sound of %s is %s", mac, "on" if sound.enabled else "off")
+        self._sound_enabled[mac] = sound.enabled
+        self.async_update_listeners()
+
+    def _async_sound_check_due(self, mac: str) -> bool:
+        """Report whether `mac` is due for a beep-setting read."""
+        checked_at = self._sound_checked_at.get(mac)
+        if checked_at is None:
+            return True
+        return self.hass.loop.time() - checked_at >= SOUND_CHECK_INTERVAL_SECONDS
 
     def _async_clock_check_due(self, mac: str) -> bool:
         """Report whether `mac` is due for a clock comparison."""
