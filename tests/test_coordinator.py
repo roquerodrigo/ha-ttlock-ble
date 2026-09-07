@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
-from ttlock_ble import DeviceInfo
+from ttlock_ble import DeviceInfo, LockSound
 
 from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
 from custom_components.ttlock_ble.coordinator import (
     CLOCK_CHECK_INTERVAL_SECONDS,
     CLOCK_DRIFT_THRESHOLD_SECONDS,
+    SOUND_CHECK_INTERVAL_SECONDS,
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
 )
@@ -40,6 +41,7 @@ def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicM
     conn.async_get_operation_log = AsyncMock(return_value=[])
     conn.async_get_device_info = AsyncMock(return_value=None)
     conn.async_get_lock_time = AsyncMock(return_value=None)
+    conn.async_get_lock_sound = AsyncMock(return_value=None)
     conn.async_calibrate_time = AsyncMock(return_value=True)
     return conn
 
@@ -819,3 +821,126 @@ async def test_a_failed_log_read_carries_no_clock_check(hass) -> None:
     await coordinator._async_fetch_operation_log(MAC, conn)
 
     conn.async_get_lock_time.assert_not_awaited()
+
+
+def _sound_connection(*, enabled: bool = True, admin: bool = True) -> MagicMock:
+    """A connection whose lock reports its beep setting when asked."""
+    conn = _mock_connection()
+    conn.key = MagicMock(lockMac=MAC, adminPs="135792468" if admin else "")
+    conn.key.is_admin = MagicMock(return_value=admin)
+    conn.async_get_lock_sound = AsyncMock(
+        return_value=LockSound(enabled=enabled, volume=None)
+    )
+    return conn
+
+
+async def test_the_sound_setting_is_unknown_until_a_session_carries_it(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _sound_connection()})
+
+    assert coordinator.async_sound_enabled(MAC) is None
+
+
+async def test_a_poll_reads_the_sound_setting(hass) -> None:
+    conn = _sound_connection(enabled=False)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_sound.assert_awaited_once()
+    assert coordinator.async_sound_enabled(MAC) is False
+
+
+async def test_the_sound_read_tells_the_entities(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _sound_connection()})
+    listener = MagicMock()
+    coordinator.async_add_listener(listener)
+
+    await coordinator._async_update_data()
+
+    listener.assert_called()
+
+
+async def test_the_sound_setting_is_read_at_most_once_per_interval(hass) -> None:
+    """Each read costs the admin handshake, and the setting rarely moves."""
+    conn = _sound_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_sound.assert_awaited_once()
+
+
+async def test_the_sound_setting_is_read_again_once_the_interval_has_passed(
+    hass,
+) -> None:
+    """The official app can change it at any time, and nothing announces that."""
+    conn = _sound_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    coordinator._sound_checked_at[MAC] -= SOUND_CHECK_INTERVAL_SECONDS
+    await coordinator._async_update_data()
+
+    assert conn.async_get_lock_sound.await_count == 2
+
+
+async def test_a_sound_read_that_did_not_land_is_tried_on_the_next_session(
+    hass,
+) -> None:
+    conn = _sound_connection()
+    conn.async_get_lock_sound = AsyncMock(
+        side_effect=[None, LockSound(enabled=True, volume=None)]
+    )
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    assert coordinator.async_sound_enabled(MAC) is None
+
+    await coordinator._async_update_data()
+    assert coordinator.async_sound_enabled(MAC) is True
+
+
+async def test_a_key_that_cannot_administer_is_never_asked_for_the_sound(
+    hass,
+) -> None:
+    """The firmware refuses the read without CHECK_ADMIN; asking costs a round trip."""
+    conn = _sound_connection(admin=False)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_lock_sound.assert_not_awaited()
+    assert coordinator.async_sound_enabled(MAC) is None
+
+
+async def test_the_log_read_carries_the_sound_read(hass) -> None:
+    conn = _sound_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_fetch_operation_log(MAC, conn)
+
+    conn.async_get_lock_sound.assert_awaited_once()
+
+
+async def test_a_failed_log_read_carries_no_sound_read(hass) -> None:
+    conn = _sound_connection()
+    conn.async_get_operation_log = AsyncMock(side_effect=ValueError("garbled frame"))
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_fetch_operation_log(MAC, conn)
+
+    conn.async_get_lock_sound.assert_not_awaited()
+
+
+async def test_a_written_sound_setting_is_adopted_without_a_read(hass) -> None:
+    conn = _sound_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+    listener = MagicMock()
+    coordinator.async_add_listener(listener)
+
+    coordinator.async_note_sound_enabled(MAC, enabled=False)
+
+    assert coordinator.async_sound_enabled(MAC) is False
+    conn.async_get_lock_sound.assert_not_awaited()
+    listener.assert_called_once()

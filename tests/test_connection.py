@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from bleak import BleakError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from ttlock_ble import DeviceInfo, LockEvent, TTLockError
+from ttlock_ble import DeviceInfo, LockEvent, LockSound, TTLockError
 
 from custom_components.ttlock_ble.connection import (
     TtlockBleConnection,
@@ -796,6 +796,42 @@ async def test_get_lock_time_that_fails_costs_nothing_else(
     mock_ttlock_client.get_lock_time = AsyncMock(side_effect=TTLockError("link down"))
     conn = TtlockBleConnection(hass, sample_virtual_key)
     assert await conn.async_get_lock_time() is None
+
+
+async def test_get_lock_sound_returns_what_the_lock_reports(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    sound = LockSound(enabled=False, volume=None)
+    mock_ttlock_client.get_lock_sound = AsyncMock(return_value=sound)
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_sound() is sound
+
+
+async def test_get_lock_sound_returns_none_when_device_missing(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_sound() is None
+    mock_ttlock_client.connect.assert_not_awaited()
+
+
+async def test_get_lock_sound_that_fails_costs_nothing_else(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """A settings read is not worth failing the poll that carried it."""
+    mock_ttlock_client.get_lock_sound = AsyncMock(side_effect=TTLockError("refused"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_get_lock_sound() is None
 
 
 async def test_calibrate_time_reports_that_it_landed(

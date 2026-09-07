@@ -12,6 +12,7 @@ from ttlock_ble import TTLockError
 
 from .const import LOGGER
 from .entity import TtlockBleEntity
+from .key_privileges import can_administer
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -24,18 +25,6 @@ if TYPE_CHECKING:
     from .data import TtlockBleConfigEntry
 
 
-def _can_manage_sound(key: VirtualKey) -> bool:
-    """
-    Report whether this key may change lock settings at all.
-
-    The firmware gates the command behind CHECK_ADMIN, which needs both
-    an admin key and the admin passcode that authorises it. A key
-    obtained outside a TTLock account often carries no passcode, and an
-    entity that can only ever fail is worse than no entity.
-    """
-    return key.is_admin() and bool(key.adminPs)
-
-
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
     entry: TtlockBleConfigEntry,
@@ -46,7 +35,7 @@ async def async_setup_entry(
     async_add_entities(
         TtlockBleSoundSwitch(data.coordinator, key, data.connections[key.lockMac])
         for key in data.virtual_keys
-        if _can_manage_sound(key)
+        if can_administer(key)
     )
 
 
@@ -54,18 +43,15 @@ class TtlockBleSoundSwitch(TtlockBleEntity, SwitchEntity):
     """
     The lock's keypad/lock beep.
 
-    `assumed_state` because the firmware has no opcode that reports this
-    setting back: neither a query nor the advertisement carries it. What
-    the entity shows is the last value it sent, which stops being true
-    the moment someone changes it from the official app — and is unknown
-    entirely until something sets it. Home Assistant renders an assumed
-    state as two buttons rather than one toggle, which is the honest
-    presentation: the command can be sent, the answer cannot be read.
+    The setting is read from the lock on sessions opened for something
+    else and kept by the coordinator, so what the entity shows is what
+    the lock last reported — or what it last accepted from here, which
+    the next paced read confirms. It is unknown until either has
+    happened: nothing connects just to learn it.
     """
 
     _attr_translation_key = "sound"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_assumed_state = True
     _attr_icon = "mdi:volume-high"
 
     def __init__(
@@ -77,12 +63,16 @@ class TtlockBleSoundSwitch(TtlockBleEntity, SwitchEntity):
         """Bind the switch to its key + connection."""
         super().__init__(coordinator, key)
         self._connection = connection
-        self._attr_is_on: bool | None = None
 
     @property
     def unique_id(self) -> str:
         """Return a stable unique id for this entity."""
         return f"{self._key.lockMac}_sound"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the beep setting as the coordinator last learned it."""
+        return self.coordinator.async_sound_enabled(self._key.lockMac)
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # noqa: ARG002
         """Turn the beep on."""
@@ -93,7 +83,7 @@ class TtlockBleSoundSwitch(TtlockBleEntity, SwitchEntity):
         await self._async_set(enabled=False)
 
     async def _async_set(self, *, enabled: bool) -> None:
-        """Send the command and adopt what was sent, since nothing reads it back."""
+        """Send the command and adopt what the lock accepted."""
         try:
             await self._connection.async_set_lock_sound(enabled=enabled)
         except TTLockError as exc:
@@ -104,5 +94,4 @@ class TtlockBleSoundSwitch(TtlockBleEntity, SwitchEntity):
             )
             msg = f"Failed to set the sound of {self._key.lockMac}: {exc}"
             raise HomeAssistantError(msg) from exc
-        self._attr_is_on = enabled
-        self.async_write_ha_state()
+        self.coordinator.async_note_sound_enabled(self._key.lockMac, enabled=enabled)

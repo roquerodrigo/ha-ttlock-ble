@@ -32,7 +32,14 @@ if TYPE_CHECKING:
     from bleak import BleakClient
     from homeassistant.core import HomeAssistant
 
-    from ttlock_ble import DeviceInfo, LockEvent, LockState, LogEntry, VirtualKey
+    from ttlock_ble import (
+        DeviceInfo,
+        LockEvent,
+        LockSound,
+        LockState,
+        LogEntry,
+        VirtualKey,
+    )
 
 
 RECONNECT_INITIAL_BACKOFF = 1.0
@@ -210,6 +217,31 @@ class TtlockBleConnection:
                 # caller keeps whatever it knew and tries again later.
                 LOGGER.debug(
                     "get_lock_time failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return None
+
+    async def async_get_lock_sound(self) -> LockSound | None:
+        """
+        Read the lock's beep setting through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        Admin-gated by the firmware like the write is, so a key carrying
+        no admin password can only ever fail here; callers check that
+        before asking.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_lock_sound()
+            except Exception as exc:  # noqa: BLE001
+                # A settings read is not worth losing the poll that
+                # carried it: the caller keeps whatever it knew.
+                LOGGER.debug(
+                    "get_lock_sound failed for %s: %s",
                     self._key.lockMac,
                     exc,
                 )
