@@ -1111,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "ha-ttlock-ble"
-version = "3.8.0"
+version = "3.9.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1155,7 +1155,7 @@ dev = [
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.354" },
     { name = "serialx", specifier = "==1.8.2" },
-    { name = "ttlock-ble", specifier = "==0.3.0" },
+    { name = "ttlock-ble", specifier = "==0.3.2" },
 ]
 lint = [
     { name = "mypy", specifier = "==2.3.1" },
@@ -2734,7 +2734,7 @@ wheels = [
 
 [[package]]
 name = "ttlock-ble"
-version = "0.3.0"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -2742,9 +2742,9 @@ dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/c3/dc8175a9cf6161a9096f64d610abb5a7ed48927456f407555c6a7479d6c8/ttlock_ble-0.3.0.tar.gz", hash = "sha256:ccc86e683c3feea30fa05fe2980800731eca4ed233c7c4e6434af629c913e88a", size = 55656, upload-time = "2026-08-30T02:03:25.138Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/2e/74cfbd072a59f34540c9a3390f1653d66da92f64c2cafc6abd9b72f50f99/ttlock_ble-0.3.2.tar.gz", hash = "sha256:47e1c07d51623d04ad0f47acbc3b9e88093891cd67beaaed42c939504110b99e", size = 74933, upload-time = "2026-09-06T22:53:42.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/8f/abb2a6ec2d45e03fc1007c14d195acda5cfe908c38444312153b42324c98/ttlock_ble-0.3.0-py3-none-any.whl", hash = "sha256:09f547eea90a96c1b20a8ee662126678884a633b240ef62ce4658f3e85702d89", size = 69986, upload-time = "2026-08-30T02:03:24.138Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/fd/03eb016664d58bff54edb946cff635c075b7c94bada0060486f255b84345/ttlock_ble-0.3.2-py3-none-any.whl", hash = "sha256:e4aa07b8830fb2147037bdf7bb12439ae52501553372db8e5b14f9a9e0ac8035", size = 94803, upload-time = "2026-09-06T22:53:41.332Z" },
 ]
 
 [[package]]

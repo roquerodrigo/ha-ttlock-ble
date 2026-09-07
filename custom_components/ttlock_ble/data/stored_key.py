@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from .stored_lock_version import TtlockBleStoredLockVersion
@@ -28,4 +28,5 @@ class TtlockBleStoredKey(TypedDict):
     adminPs: str
     keyboardPwdVersion: int
     specialValue: int
+    featureValue: NotRequired[str]
     uid: int

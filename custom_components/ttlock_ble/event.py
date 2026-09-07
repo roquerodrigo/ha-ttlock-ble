@@ -102,6 +102,8 @@ UNLOCK_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.PALM_VEIN_UNLOCK_SUCCESS,
         LogOperate.ADMIN_CODE_UNLOCK,
         LogOperate.THIRD_DEVICE_UNLOCK_SUCCESS,
+        LogOperate.HIGH_TEMPERATURE_UNLOCK,
+        LogOperate.LOW_BATTERY_AUTO_UNLOCK,
     },
 )
 
@@ -117,6 +119,7 @@ LOCK_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.FACE_3D_LOCK,
         LogOperate.PALM_VEIN_LOCK,
         LogOperate.THIRD_DEVICE_LOCK_SUCCESS,
+        LogOperate.QR_CODE_LOCK_SUCCESS,
     },
 )
 
@@ -141,6 +144,7 @@ UNLOCK_FAILED_RECORD_TYPES: frozenset[int] = frozenset(
         LogOperate.CARD_UNLOCK_FAILED,
         LogOperate.THIRD_DEVICE_UNLOCK_FAILED_LOCK_REVERSE,
         LogOperate.THIRD_DEVICE_UNLOCK_FAILED_INVALID_TIME,
+        LogOperate.QR_CODE_UNLOCK_FAILED_LOCK_REVERSE,
     },
 )
 
@@ -194,6 +198,16 @@ UNBUCKETED_RECORD_TYPES: frozenset[int] = frozenset(
         # A verification step of a two-factor flow, not the unlock that
         # may or may not follow it.
         LogOperate.DOUBLE_CHECK_THIRD_DEVICE_VERIFY,
+        # Alarms: the door stayed open, the lock got hot, a fire was
+        # sensed. No bolt operation, and folding them into a bucket
+        # would hide the one thing worth an automation.
+        LogOperate.DOOR_NOT_CLOSE_ALARM,
+        LogOperate.HIGH_TEMPERATURE_ALARM,
+        LogOperate.FIRE_ALARM,
+        # A vendor-specific record the SDK names but does not describe.
+        LogOperate.ANLANGJIE_LOG,
+        # A state read over NFC; nothing moved.
+        LogOperate.GET_NFC_LOCK_STATE,
     },
 )
 
