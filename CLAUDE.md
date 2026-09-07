@@ -46,41 +46,7 @@ If these two pins diverge, CI is green against a different SDK version than what
 
 ## Architecture
 
-The integration follows the HA `DataUpdateCoordinator` pattern:
-
-```
-config_flow.py   → cloud-bootstraps credentials, requests 2FA when needed,
-                    pulls the per-lock VirtualKeys, creates the ConfigEntry
-manual_key.py    → builds a VirtualKey from a hand-entered key, for locks
-                    that were never in a TTLock account
-__init__.py      → instantiates one TtlockBleConnection per lock and a
-                    DataUpdateCoordinator, performs the first refresh
-connection.py    → connects on demand; holds a session open only when the
-                    permanent connection is on, and dispatches push events
-advertisement.py → decodes lock state + battery from the advertisements
-                    HA's bluetooth manager already receives, no connection
-coordinator.py   → publishes the advertised state as it arrives; no polling
-                    interval, a refresh only on demand
-lock.py          → LockEntity backed by the BLE connection
-sensor.py        → BatterySensor backed by the same poll + push events, a
-                    LastSeenSensor reading the bluetooth manager's own
-                    advertisement history (see below), and a ClockDriftSensor
-                    reporting how far the lock's own clock has wandered
-binary_sensor.py → connectivity BinarySensorEntity reflecting live BLE link state
-                    (named "Bluetooth connection": a healthy idle lock holds
-                    no session, so this being off says nothing about reach)
-event.py         → EventEntity that surfaces decoded LogEntry records
-switch.py        → the lock's beep; assumed state, admin keys only
-record_store.py  → persists the operation-log cursor per lock, so a
-                    restart resumes instead of re-seeding
-device_description_store.py
-                 → persists what each lock reported about itself (model,
-                    hardware, firmware), so a restart shows it before any
-                    session is opened
-clock_sync_store.py
-                 → persists when each lock's clock was last compared with
-                    local time, so the daily pacing survives a restart
-```
+The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py` publishes advertised state as it arrives with no polling interval, `connection.py` opens a BLE session only on demand (one `TtlockBleConnection` per lock), and `advertisement.py` decodes state + battery from advertisements HA's bluetooth manager already receives without connecting. The subsections below cover the reasoning that the module names do not.
 
 ### Entry typing
 
