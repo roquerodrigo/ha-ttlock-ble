@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.10.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.10.0...v3.10.1) (2026-09-18)
+
+
+### Dependencies
+
+* **deps:** bump anyio from 4.13.0 to 4.14.2 ([326b41e](https://github.com/roquerodrigo/ha-ttlock-ble/commit/326b41edaeb7768c11255ccd7bbc5883ea716f82))
+
+
+### Development Dependencies
+
+* **deps-dev:** bump the python-deps group with 4 updates ([7d00e45](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7d00e45d29d3da5ad874c00ce879dd55033542ac))
+
+
+### Documentation
+
+* refresh CLAUDE.md ([44dd25d](https://github.com/roquerodrigo/ha-ttlock-ble/commit/44dd25d45ee7c95e158aa34800d367f5b294cfc3))
+
 ## [3.10.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.9.0...v3.10.0) (2026-09-07)
 
 
