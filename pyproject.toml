@@ -9,7 +9,7 @@ package = false
 
 [dependency-groups]
 dev = [
-    "aioesphomeapi==46.4.0",
+    "aioesphomeapi==46.4.1",
     "aiousbwatcher==1.1.2",
     "bleak==3.0.2",
     "bluetooth-adapters==2.4.0",
@@ -26,7 +26,7 @@ dev = [
     "ttlock-ble==0.3.2",
 ]
 lint = [
-    "ruff==0.16.7",
+    "ruff==0.16.8",
     "mypy==2.3.1",
 ]
 
