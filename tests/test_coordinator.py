@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
-from ttlock_ble import DeviceInfo, LockSound
+from ttlock_ble import DeviceInfo, FingerprintEntry, LockSound
 
 from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
 from custom_components.ttlock_ble.coordinator import (
     CLOCK_CHECK_INTERVAL_SECONDS,
     CLOCK_DRIFT_THRESHOLD_SECONDS,
+    FINGERPRINT_CHECK_INTERVAL_SECONDS,
     SOUND_CHECK_INTERVAL_SECONDS,
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
@@ -42,6 +43,7 @@ def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicM
     conn.async_get_device_info = AsyncMock(return_value=None)
     conn.async_get_lock_time = AsyncMock(return_value=None)
     conn.async_get_lock_sound = AsyncMock(return_value=None)
+    conn.async_get_fingerprints = AsyncMock(return_value=None)
     conn.async_calibrate_time = AsyncMock(return_value=True)
     return conn
 
@@ -576,10 +578,13 @@ async def test_the_hardware_strings_reach_the_registry_device(
     conn = _mock_connection()
     conn.async_get_device_info = AsyncMock(return_value=_device_info())
     coordinator = _coordinator(hass, {MAC: conn})
+    coordinator.config_entry = entry
 
     await coordinator._async_update_data()
 
-    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, MAC.lower()), entry.entry_id
+    )
     assert device is not None
     assert device.model == "SN534-4P-T78-BELL"
     assert device.hw_version == "1.7"
@@ -607,10 +612,13 @@ async def test_a_field_the_lock_leaves_out_keeps_what_the_device_had(
     conn = _mock_connection()
     conn.async_get_device_info = AsyncMock(return_value=_device_info(model=None))
     coordinator = _coordinator(hass, {MAC: conn})
+    coordinator.config_entry = entry
 
     await coordinator._async_update_data()
 
-    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, MAC.lower()), entry.entry_id
+    )
     assert device is not None
     assert device.model == "Protocol 5.3"
     assert device.sw_version == "6.5.20.24121101"
@@ -832,6 +840,154 @@ def _sound_connection(*, enabled: bool = True, admin: bool = True) -> MagicMock:
         return_value=LockSound(enabled=enabled, volume=None)
     )
     return conn
+
+
+def _fingerprint_connection(
+    *, fingerprints: list[FingerprintEntry] | None = None, admin: bool = True
+) -> MagicMock:
+    """A connection whose lock reports its enrolled fingerprints when asked."""
+    conn = _mock_connection()
+    conn.key = MagicMock(lockMac=MAC, adminPs="135792468" if admin else "")
+    conn.key.is_admin = MagicMock(return_value=admin)
+    conn.async_get_fingerprints = AsyncMock(
+        return_value=[
+            FingerprintEntry(
+                fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+                slot=1,
+                start_date=None,
+                end_date=None,
+            )
+        ]
+        if fingerprints is None
+        else fingerprints
+    )
+    return conn
+
+
+async def test_the_fingerprints_are_unknown_until_a_session_carries_them(
+    hass,
+) -> None:
+    coordinator = _coordinator(hass, {MAC: _fingerprint_connection()})
+
+    assert coordinator.async_fingerprints(MAC) is None
+
+
+async def test_a_poll_reads_the_fingerprints(hass) -> None:
+    entries = [
+        FingerprintEntry(
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start_date=None,
+            end_date=None,
+        )
+    ]
+    conn = _fingerprint_connection(fingerprints=entries)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_fingerprints.assert_awaited_once()
+    assert coordinator.async_fingerprints(MAC) == entries
+
+
+async def test_the_fingerprint_read_tells_the_entities(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _fingerprint_connection()})
+    listener = MagicMock()
+    coordinator.async_add_listener(listener)
+
+    await coordinator._async_update_data()
+
+    listener.assert_called()
+
+
+async def test_the_fingerprints_are_read_at_most_once_per_interval(hass) -> None:
+    """Each read walks the whole enrolled list, one round trip per entry."""
+    conn = _fingerprint_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_fingerprints.assert_awaited_once()
+
+
+async def test_the_fingerprints_are_read_again_once_the_interval_has_passed(
+    hass,
+) -> None:
+    conn = _fingerprint_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    coordinator._fingerprints_checked_at[MAC] -= FINGERPRINT_CHECK_INTERVAL_SECONDS
+    await coordinator._async_update_data()
+
+    assert conn.async_get_fingerprints.await_count == 2
+
+
+async def test_a_fingerprint_read_that_did_not_land_is_tried_on_the_next_session(
+    hass,
+) -> None:
+    conn = _fingerprint_connection()
+    entries = [
+        FingerprintEntry(
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start_date=None,
+            end_date=None,
+        )
+    ]
+    conn.async_get_fingerprints = AsyncMock(side_effect=[None, entries])
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    assert coordinator.async_fingerprints(MAC) is None
+
+    await coordinator._async_update_data()
+    assert coordinator.async_fingerprints(MAC) == entries
+
+
+async def test_a_key_that_cannot_administer_is_never_asked_for_fingerprints(
+    hass,
+) -> None:
+    """The firmware refuses the read without CHECK_ADMIN; asking costs a round trip."""
+    conn = _fingerprint_connection(admin=False)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_fingerprints.assert_not_awaited()
+    assert coordinator.async_fingerprints(MAC) is None
+
+
+async def test_async_refresh_fingerprints_bypasses_the_pacing_interval(hass) -> None:
+    """The refresh button's whole point: land even right after a read."""
+    entries = [
+        FingerprintEntry(
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start_date=None,
+            end_date=None,
+        )
+    ]
+    conn = _fingerprint_connection(fingerprints=entries)
+    coordinator = _coordinator(hass, {MAC: conn})
+    await coordinator._async_update_data()
+    conn.async_get_fingerprints.assert_awaited_once()
+
+    await coordinator.async_refresh_fingerprints(MAC)
+
+    assert conn.async_get_fingerprints.await_count == 2
+
+
+async def test_async_refresh_fingerprints_still_respects_the_admin_gate(hass) -> None:
+    """`force` bypasses the pacing interval, never the admin-password check."""
+    conn = _fingerprint_connection(admin=False)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator.async_refresh_fingerprints(MAC)
+
+    conn.async_get_fingerprints.assert_not_awaited()
+    assert coordinator.async_fingerprints(MAC) is None
 
 
 async def test_the_sound_setting_is_unknown_until_a_session_carries_it(hass) -> None:

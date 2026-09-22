@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from ttlock_ble import (
         DeviceInfo,
+        FingerprintEntry,
         LockEvent,
         LockSound,
         LockState,
@@ -242,6 +243,30 @@ class TtlockBleConnection:
                 # carried it: the caller keeps whatever it knew.
                 LOGGER.debug(
                     "get_lock_sound failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return None
+
+    async def async_get_fingerprints(self) -> list[FingerprintEntry] | None:
+        """
+        Read the enrolled fingerprint list through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        Admin-gated by the firmware, so a key carrying no admin password
+        can only ever fail here; callers check that before asking.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_fingerprints()
+            except Exception as exc:  # noqa: BLE001
+                # A settings read is not worth losing the poll that
+                # carried it: the caller keeps whatever it knew.
+                LOGGER.debug(
+                    "get_fingerprints failed for %s: %s",
                     self._key.lockMac,
                     exc,
                 )

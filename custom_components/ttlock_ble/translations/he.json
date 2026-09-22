@@ -123,6 +123,11 @@
         "name": "חיבור Bluetooth"
       }
     },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "רענון טביעות אצבע"
+      }
+    },
     "event": {
       "log": {
         "name": "יומן",
@@ -150,6 +155,12 @@
       },
       "clock_drift": {
         "name": "סטיית שעון"
+      },
+      "fingerprint_count": {
+        "name": "מספר טביעות אצבע"
+      },
+      "fingerprint_number": {
+        "name": "מספר טביעת אצבע"
       },
       "last_seen": {
         "name": "נראה לאחרונה"

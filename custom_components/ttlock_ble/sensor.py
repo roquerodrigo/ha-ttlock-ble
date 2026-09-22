@@ -21,7 +21,12 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .connection import event_signal
-from .entity import TtlockBleEntity
+from .entity import (
+    TtlockBleEntity,
+    TtlockBleFingerprintEntity,
+    TtlockBleFingerprintsHubEntity,
+)
+from .key_privileges import can_administer
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -38,13 +43,31 @@ if TYPE_CHECKING:
 # the wire: it only looks at what the bluetooth manager already holds.
 LAST_SEEN_REFRESH_INTERVAL = timedelta(seconds=30)
 
+# Matches ttlock-ble's own `get-passcodes`/`get-fingerprints` CLI note,
+# verbatim (minus its CLI-specific "note:"/"above" framing, which doesn't
+# apply to an entity attribute).
+FINGERPRINT_CYCLIC_LIMITATION = (
+    "this cannot detect cyclic (day-of-week/time-range) restrictions - "
+    "a fingerprint may still be limited to specific days/hours."
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create the battery and last-seen sensors for every `VirtualKey`."""
+    """
+    Create the fixed per-key sensors, then react to fingerprints as they're found.
+
+    Fingerprint sensors are dynamic: how many exist varies per lock and
+    changes over time, unlike the fixed battery/last-seen/clock-drift set
+    above. `TtlockBleFingerprintCountSensor` is what actually registers
+    the "Fingerprints" hub device - without at least one entity whose
+    `device_info.identifiers` matches it directly, HA's `via_device` never
+    resolves and the per-fingerprint devices below would end up as
+    unparented orphans instead of nested under it.
+    """
     data = entry.runtime_data
     async_add_entities(
         sensor
@@ -53,8 +76,46 @@ async def async_setup_entry(
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
             TtlockBleClockDriftSensor(data.coordinator, key),
+            *(
+                (TtlockBleFingerprintCountSensor(data.coordinator, key),)
+                if can_administer(key)
+                else ()
+            ),
         )
     )
+
+    known_fingerprint_ids: dict[str, set[str]] = {}
+
+    @callback
+    def _async_add_new_fingerprints() -> None:
+        """Create one sensor per fingerprint the coordinator hasn't reported before."""
+        new_entities: list[TtlockBleFingerprintNumberSensor] = []
+        for key in data.virtual_keys:
+            mac = key.lockMac
+            fingerprints = data.coordinator.async_fingerprints(mac)
+            if fingerprints is None:
+                continue
+            seen = known_fingerprint_ids.setdefault(mac, set())
+            for fingerprint in fingerprints:
+                fp_unique = f"{fingerprint.fingerprint_id.hex()}_{fingerprint.slot}"
+                if fp_unique in seen:
+                    continue
+                seen.add(fp_unique)
+                new_entities.append(
+                    TtlockBleFingerprintNumberSensor(
+                        data.coordinator,
+                        key,
+                        fingerprint.fingerprint_id,
+                        fingerprint.slot,
+                    )
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        data.coordinator.async_add_listener(_async_add_new_fingerprints)
+    )
+    _async_add_new_fingerprints()
 
 
 class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
@@ -243,3 +304,66 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
             age = MONOTONIC_TIME() - service_info.time
             self._attr_native_value = dt_util.utcnow() - timedelta(seconds=age)
         return self._attr_native_value
+
+
+class TtlockBleFingerprintCountSensor(TtlockBleFingerprintsHubEntity, SensorEntity):
+    """
+    How many fingerprints are enrolled - the "Fingerprints" hub device's own entity.
+
+    This is what actually registers the hub device in HA's device
+    registry; see `async_setup_entry`'s docstring for why one is needed
+    even though this step only cares about listing fingerprints.
+    """
+
+    _attr_translation_key = "fingerprint_count"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_fingerprint_count"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return how many fingerprints the coordinator last read, if any."""
+        fingerprints = self.coordinator.async_fingerprints(self._key.lockMac)
+        return None if fingerprints is None else len(fingerprints)
+
+
+class TtlockBleFingerprintNumberSensor(TtlockBleFingerprintEntity, SensorEntity):
+    """The fingerprint's own number, as displayed in the official app."""
+
+    _attr_translation_key = "fingerprint_number"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """
+        Return a stable unique id for this entity.
+
+        Kept as the original `..._id` scheme deliberately - renaming
+        this class and its display did not change what identifies the
+        entity across restarts. A unique_id change here would make HA
+        treat every already-enrolled fingerprint as a brand-new entity,
+        losing history, customizations and automation references tied
+        to the old one.
+        """
+        return f"{self._key.lockMac}_fp_{self._fingerprint_id.hex()}_{self._slot}_id"
+
+    @property
+    def native_value(self) -> int:
+        """Return the fingerprint's number, matching `device_info`'s name."""
+        return self._fingerprint_number
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """
+        Carry ttlock-ble's own cyclic-restriction blind spot, verbatim.
+
+        `get_fingerprints` has no visibility into day-of-week/time-range
+        restrictions on a fingerprint - a separate mechanism the SDK
+        doesn't query. This must not be read as confirmation that a
+        fingerprint shown here is unrestricted.
+        """
+        return {"limitation": FINGERPRINT_CYCLIC_LIMITATION}

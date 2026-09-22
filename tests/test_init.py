@@ -203,9 +203,14 @@ async def test_setup_prunes_devices_for_removed_locks(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert registry.async_get_device(identifiers={(DOMAIN, stale_mac)}) is None
     assert (
-        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+        registry.async_get_device_by_identifier((DOMAIN, stale_mac), entry.entry_id)
+        is None
+    )
+    assert (
+        registry.async_get_device_by_identifier(
+            (DOMAIN, "aa:bb:cc:dd:ee:ff"), entry.entry_id
+        )
         is not None
     )
 
@@ -220,7 +225,9 @@ async def test_remove_config_entry_device_denies_a_configured_lock(
     from custom_components.ttlock_ble.const import DOMAIN
 
     registry = device_registry.async_get(hass)
-    device = registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, "aa:bb:cc:dd:ee:ff"), setup_integration.entry_id
+    )
     assert device is not None
     assert not await async_remove_config_entry_device(hass, setup_integration, device)
 
@@ -275,7 +282,9 @@ async def test_reauth_key_refresh_prunes_the_replaced_lock(
 
     registry = device_registry.async_get(hass)
     assert (
-        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")})
+        registry.async_get_device_by_identifier(
+            (DOMAIN, "aa:bb:cc:dd:ee:ff"), entry.entry_id
+        )
         is not None
     )
 
@@ -293,10 +302,15 @@ async def test_reauth_key_refresh_prunes_the_replaced_lock(
     assert result["type"] == "abort"
     assert result["reason"] == "reauth_successful"
     assert (
-        registry.async_get_device(identifiers={(DOMAIN, "aa:bb:cc:dd:ee:ff")}) is None
+        registry.async_get_device_by_identifier(
+            (DOMAIN, "aa:bb:cc:dd:ee:ff"), entry.entry_id
+        )
+        is None
     )
     assert (
-        registry.async_get_device(identifiers={(DOMAIN, "11:22:33:44:55:66")})
+        registry.async_get_device_by_identifier(
+            (DOMAIN, "11:22:33:44:55:66"), entry.entry_id
+        )
         is not None
     )
 

@@ -65,6 +65,7 @@ def _authored_entity_keys() -> set[tuple[str, str]]:
 async def test_entity_translation_keys_and_authored_names_agree(
     hass,
     setup_integration,
+    sample_virtual_key,
 ):
     """
     Every translation key an entity asks for is authored, and vice versa.
@@ -75,8 +76,27 @@ async def test_entity_translation_keys_and_authored_names_agree(
     nothing. Comparing the locales against each other cannot catch this
     either — a key missing from both sides matches, and the entity falls
     back to its device-class name while the authored one never shows.
+
+    The fingerprint-number sensor is created dynamically and does not
+    exist under a bare setup with nothing discovered yet, so one fingerprint is
+    pushed through the coordinator first - otherwise its authored key
+    would look unused by every check that runs before any lock is polled.
     """
     from homeassistant.helpers import entity_registry as er
+    from ttlock_ble import FingerprintEntry
+
+    setup_integration.runtime_data.coordinator._fingerprints[
+        sample_virtual_key.lockMac
+    ] = [
+        FingerprintEntry(
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start_date=None,
+            end_date=None,
+        )
+    ]
+    setup_integration.runtime_data.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
 
     registry = er.async_get(hass)
     requested = {
