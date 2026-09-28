@@ -42,7 +42,7 @@ This integration wraps the sibling repo [`ttlock-ble`](https://github.com/roquer
 - `custom_components/ttlock_ble/manifest.json` → `requirements: ["ttlock-ble==<version>"]` — this is what HACS/HA actually installs for end users.
 - `pyproject.toml` → `dependency-groups.dev` → `"ttlock-ble==<version>"` — this is what lint/mypy/pytest run against locally and in CI.
 
-If these two pins diverge, CI is green against a different SDK version than what ships to users. A breaking change in the SDK's public API (`TTLockCloud`, `TTLockClient`, `VirtualKey`, `CloudError`, the `disconnected_callback` signature) requires bumping both pins together, then re-running lint + tests here — the SDK repo's own release does not by itself update anything on this side.
+If these two pins diverge, the tests would pass against an SDK version users never get — `tests/test_packaging.py` fails the suite when they differ. A breaking change in the SDK's public API (`TTLockCloud`, `TTLockClient`, `VirtualKey`, `CloudError`, the `disconnected_callback` signature) requires bumping both pins together, then re-running lint + tests here — the SDK repo's own release does not by itself update anything on this side.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py`
 
 `data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
-The two stores are the deliberate exception: `record_store.py` and `device_description_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
+The three stores are the deliberate exception: `record_store.py`, `device_description_store.py` and `clock_sync_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
 
 ### Config flow surface
 
