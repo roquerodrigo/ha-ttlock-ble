@@ -123,6 +123,11 @@
         "name": "Conexão Bluetooth"
       }
     },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "Atualizar digitais"
+      }
+    },
     "event": {
       "log": {
         "name": "Registro",
@@ -150,6 +155,12 @@
       },
       "clock_drift": {
         "name": "Desvio do relógio"
+      },
+      "fingerprint_count": {
+        "name": "Contagem de digitais"
+      },
+      "fingerprint_number": {
+        "name": "Número da digital"
       },
       "last_seen": {
         "name": "Visto por último"

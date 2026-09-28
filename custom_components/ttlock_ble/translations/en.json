@@ -123,6 +123,11 @@
         "name": "Bluetooth connection"
       }
     },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "Refresh fingerprints"
+      }
+    },
     "event": {
       "log": {
         "name": "Log",
@@ -150,6 +155,12 @@
       },
       "clock_drift": {
         "name": "Clock drift"
+      },
+      "fingerprint_count": {
+        "name": "Fingerprint count"
+      },
+      "fingerprint_number": {
+        "name": "Fingerprint number"
       },
       "last_seen": {
         "name": "Last seen"

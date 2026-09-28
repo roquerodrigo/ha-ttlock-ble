@@ -2,6 +2,48 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from ttlock_ble import FingerprintEntry
+
+
+def _registry_entries(hass, translation_key: str):
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    return [
+        entry
+        for entry in registry.entities.values()
+        if entry.platform == "ttlock_ble" and entry.translation_key == translation_key
+    ]
+
+
+def _fingerprint_number_states(hass):
+    """Every fingerprint-number sensor currently registered, as live states."""
+    return [
+        hass.states.get(entry.entity_id)
+        for entry in _registry_entries(hass, "fingerprint_number")
+    ]
+
+
+def _fingerprint_count_state(hass):
+    """The fingerprint hub's own count sensor."""
+    entries = _registry_entries(hass, "fingerprint_count")
+    return hass.states.get(entries[0].entity_id)
+
+
+def _push_fingerprints(hass, setup_integration, mac, fingerprints) -> None:
+    """Simulate the coordinator having just read `fingerprints` for `mac`."""
+    setup_integration.runtime_data.coordinator._fingerprints[mac] = fingerprints
+    setup_integration.runtime_data.coordinator.async_update_listeners()
+
+
+def _fingerprint(id_byte: int, slot: int) -> FingerprintEntry:
+    return FingerprintEntry(
+        fingerprint_id=bytes([0x00, 0x00, 0x00, id_byte]),
+        slot=slot,
+        start_date=None,
+        end_date=None,
+    )
+
 
 def _battery_state(hass):
     """The battery sensor, picked by device class so last-seen cannot shadow it."""
@@ -59,7 +101,9 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 3
+    # 3 fixed sensors (battery/last-seen/clock-drift) + the fingerprint
+    # count sensor, created because sample_virtual_key can administer.
+    assert len(hass.states.async_all("sensor")) == 4
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -413,3 +457,203 @@ async def test_last_seen_rereads_without_touching_the_coordinator(
     assert written is not None
     assert abs((written - expected).total_seconds()) < 5
     refresh.assert_not_called()
+
+
+async def test_fingerprint_count_sensor_created_for_an_admin_key(
+    hass, setup_integration
+) -> None:
+    assert _fingerprint_count_state(hass) is not None
+
+
+async def test_no_fingerprint_count_sensor_for_a_non_admin_key(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    key = dict(sample_stored_key)
+    key["userType"] = "110302"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _registry_entries(hass, "fingerprint_count") == []
+
+
+async def test_fingerprint_count_is_unknown_before_any_read(
+    hass, setup_integration
+) -> None:
+    assert _fingerprint_count_state(hass).state in ("unknown", "unavailable")
+
+
+async def test_no_fingerprint_number_sensor_before_any_fingerprint_is_discovered(
+    hass, setup_integration
+) -> None:
+    assert _fingerprint_number_states(hass) == []
+
+
+async def test_fingerprint_number_sensor_created_when_a_fingerprint_is_discovered(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    _push_fingerprints(
+        hass, setup_integration, sample_virtual_key.lockMac, [_fingerprint(0x2A, 1)]
+    )
+    await hass.async_block_till_done()
+
+    states = _fingerprint_number_states(hass)
+    assert len(states) == 1
+    assert states[0].state == "2752513"
+
+
+async def test_fingerprint_count_sensor_reports_the_total(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    _push_fingerprints(
+        hass,
+        setup_integration,
+        sample_virtual_key.lockMac,
+        [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)],
+    )
+    await hass.async_block_till_done()
+
+    assert _fingerprint_count_state(hass).state == "2"
+
+
+async def test_fingerprint_sensors_are_not_duplicated_on_a_repeated_read(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """The same fingerprint reported again must not spawn a second entity."""
+    mac = sample_virtual_key.lockMac
+    _push_fingerprints(hass, setup_integration, mac, [_fingerprint(0x2A, 1)])
+    await hass.async_block_till_done()
+    _push_fingerprints(hass, setup_integration, mac, [_fingerprint(0x2A, 1)])
+    await hass.async_block_till_done()
+
+    assert len(_fingerprint_number_states(hass)) == 1
+
+
+async def test_a_newly_discovered_fingerprint_is_added_without_dropping_the_first(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    mac = sample_virtual_key.lockMac
+    _push_fingerprints(hass, setup_integration, mac, [_fingerprint(0x2A, 1)])
+    await hass.async_block_till_done()
+    first_states = _fingerprint_number_states(hass)
+    assert len(first_states) == 1
+
+    _push_fingerprints(
+        hass, setup_integration, mac, [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)]
+    )
+    await hass.async_block_till_done()
+
+    states = _fingerprint_number_states(hass)
+    assert len(states) == 2
+    assert {s.state for s in states} == {"2752513", "2818050"}
+
+
+async def test_fingerprint_number_sensor_has_unique_id(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """The unique_id keeps its original `..._id` scheme despite the rename/redisplay."""
+    mac = sample_virtual_key.lockMac
+    _push_fingerprints(hass, setup_integration, mac, [_fingerprint(0x2A, 1)])
+    await hass.async_block_till_done()
+
+    entries = _registry_entries(hass, "fingerprint_number")
+    assert entries[0].unique_id == f"{mac}_fp_0000002a_1_id"
+
+
+async def test_fingerprint_number_sensor_is_diagnostic(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.helpers import entity_registry as er
+
+    _push_fingerprints(
+        hass, setup_integration, sample_virtual_key.lockMac, [_fingerprint(0x2A, 1)]
+    )
+    await hass.async_block_till_done()
+
+    entries = _registry_entries(hass, "fingerprint_number")
+    assert entries[0].entity_category == er.EntityCategory.DIAGNOSTIC
+
+
+async def test_fingerprint_number_sensor_carries_the_cyclic_limitation_verbatim(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """Matches ttlock-ble's own CLI note, so the two never silently drift apart."""
+    _push_fingerprints(
+        hass, setup_integration, sample_virtual_key.lockMac, [_fingerprint(0x2A, 1)]
+    )
+    await hass.async_block_till_done()
+
+    state = _fingerprint_number_states(hass)[0]
+    assert (
+        "cannot detect cyclic (day-of-week/time-range) restrictions"
+        in (state.attributes["limitation"])
+    )
+
+
+async def test_fingerprint_devices_chain_lock_hub_and_fingerprint(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """The registry, not just `device_info`, must resolve the two-level chain.
+
+    The hub stays a regular device chained via `via_device_id`; only the
+    fingerprint below it is a `ChildDeviceInfo`, found through
+    `async_get_child_device_by_identifier` rather than the main-devices-only
+    lookup, and linked via `parent_device_id` rather than `via_device_id`.
+    """
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers.device_registry import format_mac
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    mac = sample_virtual_key.lockMac
+    _push_fingerprints(hass, setup_integration, mac, [_fingerprint(0x2A, 1)])
+    await hass.async_block_till_done()
+
+    registry = dr.async_get(hass)
+    formatted = format_mac(mac)
+    entry_id = setup_integration.entry_id
+
+    lock_device = registry.async_get_device_by_identifier((DOMAIN, formatted), entry_id)
+    hub_device = registry.async_get_device_by_identifier(
+        (DOMAIN, f"{formatted}_fingerprints"), entry_id
+    )
+    fingerprint_device = registry.async_get_child_device_by_identifier(
+        (DOMAIN, f"{formatted}_fp_0000002a_1"), entry_id
+    )
+
+    assert lock_device is not None
+    assert hub_device is not None
+    assert fingerprint_device is not None
+    assert hub_device.via_device_id == lock_device.id
+    assert fingerprint_device.parent_device_id == hub_device.id
+    assert hub_device.name == f"{sample_virtual_key.lockAlias} Fingerprints"
+    assert fingerprint_device.name == "2752513"
