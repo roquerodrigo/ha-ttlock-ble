@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.10.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.10.0...v3.10.1) (2026-10-02)
+
+
+### Dependencies
+
+* **deps:** bump anyio from 4.13.0 to 4.14.2 ([326b41e](https://github.com/roquerodrigo/ha-ttlock-ble/commit/326b41edaeb7768c11255ccd7bbc5883ea716f82))
+* **deps:** bump urllib3 from 2.7.0 to 2.8.0 ([0008edf](https://github.com/roquerodrigo/ha-ttlock-ble/commit/0008edfd1d43e527e2e018bd248d62edeca5a704))
+* **deps:** bump virtualenv from 21.3.3 to 21.7.13 ([0b71015](https://github.com/roquerodrigo/ha-ttlock-ble/commit/0b7101565b22440e163491177fa92cc8fb14d722))
+
+
+### Development Dependencies
+
+* **deps-dev:** bump the python-deps group with 2 updates ([98c4585](https://github.com/roquerodrigo/ha-ttlock-ble/commit/98c4585a1ddb64917fe42683c7c050efa69f6f77))
+* **deps-dev:** bump the python-deps group with 3 updates ([a38d7f2](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a38d7f20422bd684e09699aa8716284c8355e083))
+* **deps-dev:** bump the python-deps group with 4 updates ([7d00e45](https://github.com/roquerodrigo/ha-ttlock-ble/commit/7d00e45d29d3da5ad874c00ce879dd55033542ac))
+
+
+### Documentation
+
+* refresh CLAUDE.md ([a8f3a87](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a8f3a87708f57907026a886939353faec388b365))
+* refresh CLAUDE.md ([44dd25d](https://github.com/roquerodrigo/ha-ttlock-ble/commit/44dd25d45ee7c95e158aa34800d367f5b294cfc3))
+
+
+### Build System
+
+* **release:** bump uv.lock through release-please ([f64a528](https://github.com/roquerodrigo/ha-ttlock-ble/commit/f64a528a4a211889e29c69a3b15c926fca06aff7))
+
 ## [3.10.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.9.0...v3.10.0) (2026-09-07)
 
 
