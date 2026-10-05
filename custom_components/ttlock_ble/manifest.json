@@ -20,5 +20,5 @@
   "requirements": [
     "ttlock-ble==0.3.2"
   ],
-  "version": "3.10.0"
+  "version": "3.10.1"
 }
