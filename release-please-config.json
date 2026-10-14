@@ -44,35 +44,43 @@
         },
         {
           "type": "refactor",
-          "section": "Code Refactoring"
+          "section": "Code Refactoring",
+          "hidden": true
         },
         {
           "type": "deps",
-          "section": "Dependencies"
+          "section": "Dependencies",
+          "hidden": true
         },
         {
           "type": "deps-dev",
-          "section": "Development Dependencies"
+          "section": "Development Dependencies",
+          "hidden": true
         },
         {
           "type": "docs",
-          "section": "Documentation"
+          "section": "Documentation",
+          "hidden": true
         },
         {
           "type": "build",
-          "section": "Build System"
+          "section": "Build System",
+          "hidden": true
         },
         {
           "type": "ci",
-          "section": "Continuous Integration"
+          "section": "Continuous Integration",
+          "hidden": true
         },
         {
           "type": "test",
-          "section": "Tests"
+          "section": "Tests",
+          "hidden": true
         },
         {
           "type": "style",
-          "section": "Styles"
+          "section": "Styles",
+          "hidden": true
         },
         {
           "type": "chore",
