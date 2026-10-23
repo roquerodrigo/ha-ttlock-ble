@@ -15,6 +15,7 @@ while the session it opened is still up.
 from __future__ import annotations
 
 import asyncio
+import time
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -216,14 +217,18 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             advertisement.is_dormant,
         )
         previous = (self.data or {}).get(mac) or {}
-        locked = (
-            previous.get("locked")
-            if advertisement.lock_state is None
-            else advertisement.lock_state is LockState.LOCKED
-        )
+        if advertisement.lock_state is None:
+            # Carry the old reading's timestamp along with the old value,
+            # so the entity can tell it is nothing new.
+            locked = previous.get("locked")
+            observed_at = previous.get("observed_at")
+        else:
+            locked = advertisement.lock_state is LockState.LOCKED
+            observed_at = time.monotonic()
         snapshot: TtlockBleLockState = {
             "locked": locked,
             "battery_level": advertisement.battery,
+            "observed_at": observed_at,
         }
         self.async_set_updated_data({**(self.data or {}), mac: snapshot})
         self._async_sync_operation_log(mac, advertisement)
@@ -422,6 +427,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         result = await connection.async_query_state()
         if result is None:
             return {"locked": None, "battery_level": None}
+        observed_at = time.monotonic()
         raw_state, battery = result
         try:
             await connection.async_get_operation_log()
@@ -442,6 +448,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
+            "observed_at": observed_at,
         }
 
     async def _async_describe(self, connection: TtlockBleConnection) -> None:
