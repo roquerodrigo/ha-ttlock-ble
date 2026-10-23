@@ -55,6 +55,19 @@ def _fast_command_timings() -> Generator[None]:
 
 
 @pytest.fixture
+def real_settle_window() -> Generator[float]:
+    """Give the lock entity its production settle window back, minus the wait.
+
+    `_fast_command_timings` makes the window expire at once. Tests that
+    assert on what happens *while the bolt is still travelling* need it to
+    stay open; they end it themselves, with the lock's completion push or
+    by firing the timeout.
+    """
+    with patch("custom_components.ttlock_ble.lock.COMMAND_SETTLE_SECONDS", 15.0):
+        yield 15.0
+
+
+@pytest.fixture
 def enable_custom_integrations(hass, enable_bluetooth) -> None:
     """Clear the custom-component cache and bring up the bluetooth stub."""
     from homeassistant.loader import DATA_CUSTOM_COMPONENTS

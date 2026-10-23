@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -61,7 +62,9 @@ async def test_poll_keeps_state_when_log_read_fails(hass) -> None:
     conn.async_get_operation_log = AsyncMock(side_effect=ValueError("garbled frame"))
     coordinator = _coordinator(hass, {"AA:BB:CC:DD:EE:FF": conn})
     data = await coordinator._async_update_data()
-    assert data["AA:BB:CC:DD:EE:FF"] == {"locked": True, "battery_level": 80}
+    state = data["AA:BB:CC:DD:EE:FF"]
+    assert state["locked"] is True
+    assert state["battery_level"] == 80
 
 
 async def test_coordinator_exposes_connections(hass) -> None:
@@ -944,3 +947,57 @@ async def test_a_written_sound_setting_is_adopted_without_a_read(hass) -> None:
     assert coordinator.async_sound_enabled(MAC) is False
     conn.async_get_lock_sound.assert_not_awaited()
     listener.assert_called_once()
+
+
+async def test_poll_stamps_the_reading_with_the_time_it_was_read(hass) -> None:
+    """A poll publishes seconds after it reads, so the read time travels along."""
+    conn = _mock_connection(query_return=(0, 80))
+    coordinator = _coordinator(hass, {"AA:BB:CC:DD:EE:FF": conn})
+
+    async def slow_log() -> list:
+        await asyncio.sleep(0)
+        clock[0] += 5.0
+        return []
+
+    clock = [100.0]
+    conn.async_get_operation_log = AsyncMock(side_effect=slow_log)
+    with patch(
+        "custom_components.ttlock_ble.coordinator.time.monotonic",
+        side_effect=lambda: clock[0],
+    ):
+        data = await coordinator._async_update_data()
+    assert data["AA:BB:CC:DD:EE:FF"]["observed_at"] == 100.0
+
+
+async def test_awake_advertisement_is_stamped_with_the_time_it_was_heard(hass) -> None:
+    coordinator = _coordinator(hass, {})
+    with patch(
+        "custom_components.ttlock_ble.coordinator.time.monotonic",
+        return_value=42.0,
+    ):
+        coordinator.async_apply_advertisement(
+            "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=True)
+        )
+    assert coordinator.data["AA:BB:CC:DD:EE:FF"]["observed_at"] == 42.0
+
+
+async def test_dormant_advertisement_keeps_the_old_reading_timestamp(hass) -> None:
+    """A dormant frame carries no bolt position, so it must not look like a new read."""
+    coordinator = _coordinator(hass, {})
+    with patch(
+        "custom_components.ttlock_ble.coordinator.time.monotonic",
+        return_value=42.0,
+    ):
+        coordinator.async_apply_advertisement(
+            "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=True)
+        )
+    with patch(
+        "custom_components.ttlock_ble.coordinator.time.monotonic",
+        return_value=99.0,
+    ):
+        coordinator.async_apply_advertisement(
+            "AA:BB:CC:DD:EE:FF", _advertisement(unlocked=True, dormant=True)
+        )
+    state = coordinator.data["AA:BB:CC:DD:EE:FF"]
+    assert state["locked"] is False
+    assert state["observed_at"] == 42.0

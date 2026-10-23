@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -206,11 +207,14 @@ async def test_settle_window_suppresses_blink(
     hass,
     setup_integration,
     mock_ttlock_connection,
+    real_settle_window,
     sample_virtual_key,
 ) -> None:
-    """Force-queries inside the post-command settle window cannot flip the UI."""
-    from unittest.mock import patch
+    """Queries fired by the bolt's motion pushes cannot flip the UI mid-travel.
 
+    The lock answers `query_state` with the old position until the bolt
+    stops, and sends several motion pushes (no decoded state) meanwhile.
+    """
     from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
     from homeassistant.components.lock import SERVICE_UNLOCK
     from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -218,26 +222,32 @@ async def test_settle_window_suppresses_blink(
 
     from custom_components.ttlock_ble.connection import event_signal
 
-    # The mock returns "locked" — simulates the lock's BLE state lagging the
-    # mechanical unlock. With settle active, this must NOT bounce the UI.
     mock_ttlock_connection.async_query_state = AsyncMock(return_value=(0, 80))
     state = hass.states.async_all("lock")[0]
     assert state.state == "locked"
-    with patch("custom_components.ttlock_ble.lock.COMMAND_SETTLE_SECONDS", 60.0):
-        await hass.services.async_call(
-            LOCK_DOMAIN,
-            SERVICE_UNLOCK,
-            {"entity_id": state.entity_id},
-            blocking=True,
-        )
-        # Drive a push event while still in the settle window; the lock entity
-        # force-queries (returning "locked") but must NOT flip the UI.
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    for _ in range(3):
         async_dispatcher_send(
             hass,
             event_signal(sample_virtual_key.lockMac),
-            LockEvent(cmd_echo=0x14, status=1, data=b""),
+            LockEvent(cmd_echo=0x8A, status=1, data=b""),
         )
         await hass.async_block_till_done()
+        # Still travelling: neither the stale "locked" nor a settled state.
+        assert hass.states.get(state.entity_id).state == "unlocking"
+    mock_ttlock_connection.async_query_state.assert_awaited()
+    # The lock reports the bolt has stopped.
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x01, 0x02])),
+    )
+    await hass.async_block_till_done()
     assert hass.states.get(state.entity_id).state == "unlocked"
 
 
@@ -294,15 +304,14 @@ async def test_lock_event_with_decoded_state_skips_query(
     mock_ttlock_connection.async_query_state.assert_not_awaited()
 
 
-async def test_lock_event_with_decoded_state_respects_settle_window(
+async def test_completion_push_ends_the_settle_window_whatever_it_says(
     hass,
     setup_integration,
     mock_ttlock_connection,
+    real_settle_window,
     sample_virtual_key,
 ) -> None:
-    """A decoded-state push that disagrees with a just-commanded state is suppressed."""
-    from unittest.mock import patch
-
+    """The lock's own state push is authoritative, so a jammed bolt shows up."""
     from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
     from homeassistant.components.lock import SERVICE_UNLOCK
     from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -313,22 +322,245 @@ async def test_lock_event_with_decoded_state_respects_settle_window(
     mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
     state = hass.states.async_all("lock")[0]
     assert state.state == "locked"
-    with patch("custom_components.ttlock_ble.lock.COMMAND_SETTLE_SECONDS", 60.0):
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    assert hass.states.get(state.entity_id).state == "unlocking"
+    # The bolt stopped without reaching the commanded position.
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x00, 0x02])),
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_settle_timeout_resyncs_when_no_completion_push_arrives(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    real_settle_window,
+) -> None:
+    """Without the push the entity waits `COMMAND_SETTLE_SECONDS`, then re-reads."""
+    from datetime import timedelta
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    assert hass.states.get(state.entity_id).state == "unlocking"
+    # The bolt did not move: the resync reads the real position.
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=(0, 80))
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=real_settle_window + 1)
+    )
+    await hass.async_block_till_done()
+    mock_ttlock_connection.async_query_state.assert_awaited_once()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_settle_timeout_keeps_the_commanded_state_when_the_resync_fails(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    real_settle_window,
+) -> None:
+    from datetime import timedelta
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=real_settle_window + 1)
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+
+
+async def test_a_new_command_replaces_the_pending_settle_timer(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    real_settle_window,
+    sample_virtual_key,
+) -> None:
+    """Two commands in a row leave one window, and the second one's state wins."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_LOCK, SERVICE_UNLOCK
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    for service in (SERVICE_UNLOCK, SERVICE_LOCK):
         await hass.services.async_call(
             LOCK_DOMAIN,
-            SERVICE_UNLOCK,
+            service,
             {"entity_id": state.entity_id},
             blocking=True,
         )
-        # Lock's BLE state still says "locked" (lock_state=0) right after the
-        # unlock command. The settle window must suppress this flip.
-        async_dispatcher_send(
-            hass,
-            event_signal(sample_virtual_key.lockMac),
-            LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x00, 0x02])),
-        )
-        await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locking"
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x00, 0x02])),
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+
+
+async def test_stale_reading_is_ignored_after_the_window_closes(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    sample_virtual_key,
+) -> None:
+    """A reading taken before the command returned never beats the command."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    coordinator = hass.config_entries.async_entries("ttlock_ble")[
+        0
+    ].runtime_data.coordinator
+    mac = sample_virtual_key.lockMac
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    async_dispatcher_send(
+        hass,
+        event_signal(mac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x01, 0x02])),
+    )
+    await hass.async_block_till_done()
+    await asyncio.sleep(0.01)  # the window (patched to 1 ms) is long closed
     assert hass.states.get(state.entity_id).state == "unlocked"
+    # A slow poll finally publishes what it read before the bolt moved.
+    coordinator.async_set_updated_data(
+        {mac: {"locked": True, "battery_level": 80, "observed_at": 0.0}}
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+
+
+async def test_a_reading_is_adopted_once(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    sample_virtual_key,
+) -> None:
+    """Redelivering an old snapshot must not undo a newer state."""
+    import time
+
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    state = hass.states.async_all("lock")[0]
+    coordinator = hass.config_entries.async_entries("ttlock_ble")[
+        0
+    ].runtime_data.coordinator
+    mac = sample_virtual_key.lockMac
+    coordinator.async_set_updated_data(
+        {mac: {"locked": True, "battery_level": 80, "observed_at": time.monotonic()}}
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
+    # The thumb-turn is operated; the lock pushes its new state.
+    async_dispatcher_send(
+        hass,
+        event_signal(mac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x01, 0x02])),
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+    # Something unrelated to the bolt notifies the coordinator's listeners.
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+
+
+async def test_a_fresh_reading_after_the_command_is_adopted(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+    real_settle_window,
+    sample_virtual_key,
+) -> None:
+    """The guard against stale readings must not hide a real manual turn."""
+    import time
+
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    mock_ttlock_connection.async_query_state = AsyncMock(return_value=None)
+    state = hass.states.async_all("lock")[0]
+    coordinator = hass.config_entries.async_entries("ttlock_ble")[
+        0
+    ].runtime_data.coordinator
+    mac = sample_virtual_key.lockMac
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    async_dispatcher_send(
+        hass,
+        event_signal(mac),
+        LockEvent.from_payload(0x14, 1, bytes([0x2C, 0x01, 0x02])),
+    )
+    await hass.async_block_till_done()
+    # Someone turns the thumb-turn later; the advertisement says locked.
+    coordinator.async_set_updated_data(
+        {
+            mac: {
+                "locked": True,
+                "battery_level": 80,
+                "observed_at": time.monotonic() + 1,
+            }
+        }
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "locked"
 
 
 async def test_unlock_reports_unlocking_while_in_flight(
