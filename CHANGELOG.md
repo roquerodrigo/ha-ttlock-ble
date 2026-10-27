@@ -11,6 +11,7 @@
 
 ### Bug Fixes
 
+* **deps:** bump ttlock-ble to 0.3.3, fixing lock, unlock and operation-log reads that timed out on BlueZ adapters ([#133](https://github.com/roquerodrigo/ha-ttlock-ble/issues/133)) ([deaabcc](https://github.com/roquerodrigo/ha-ttlock-ble/commit/deaabcc5500511159b8d6359bcb51710cb245b3e))
 * **lock:** hold the commanded state until the bolt stops ([9228c57](https://github.com/roquerodrigo/ha-ttlock-ble/commit/9228c57e2fcdf1387f77ed4bde107c006679c6f4))
 
 
