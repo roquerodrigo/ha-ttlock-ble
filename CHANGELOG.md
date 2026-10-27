@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.11.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.10.0...v3.11.0) (2026-10-27)
+
+
+### Features
+
+* **binary_sensor:** report the door from a paired door sensor ([1ec2b2a](https://github.com/roquerodrigo/ha-ttlock-ble/commit/1ec2b2a83dcaa8d0333fb56c3e0bcc0aa42fa772))
+* **config_flow:** sign in to Schlage Breeze accounts ([8320bdb](https://github.com/roquerodrigo/ha-ttlock-ble/commit/8320bdb9b0a2c8b6c8136785774633c54a5636e0))
+
+
+### Bug Fixes
+
+* **lock:** hold the commanded state until the bolt stops ([9228c57](https://github.com/roquerodrigo/ha-ttlock-ble/commit/9228c57e2fcdf1387f77ed4bde107c006679c6f4))
+
+
+### Miscellaneous Chores
+
+* **release:** keep only user-facing changes in the changelog ([e82353c](https://github.com/roquerodrigo/ha-ttlock-ble/commit/e82353c9a038208241f96c16446b40b35fafed83))
+
 ## [3.10.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.9.0...v3.10.0) (2026-09-07)
 
 
