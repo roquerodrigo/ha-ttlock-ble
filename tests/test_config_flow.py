@@ -48,6 +48,7 @@ def _patch_client(
         )
         instance.async_list_keys = AsyncMock(return_value=list_keys or [])
         cls.return_value = instance
+        instance.client_class = cls
         yield instance
 
 
@@ -469,6 +470,116 @@ async def test_step_verify_code_first_render_is_form(
 
 
 # --- Reauth ---------------------------------------------------------------
+
+
+BREEZE_INPUT = {**USER_INPUT, "cloud_app": "schlage_breeze"}
+
+
+async def test_step_cloud_offers_every_cloud_app(
+    hass,
+    enable_custom_integrations,
+) -> None:
+    result = await _start_user_flow(hass)
+    schema = result["data_schema"].schema
+    picker = next(field for field in schema if field == "cloud_app")
+    assert picker.default() == "dlock_xp"
+    assert schema[picker].config["options"] == ["dlock_xp", "schlage_breeze"]
+
+
+async def test_step_cloud_defaults_to_the_dlock_xp_app(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    with _patch_client(list_keys=[sample_virtual_key]) as client:
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=USER_INPUT
+        )
+    assert result["data"]["cloud_app"] == "dlock_xp"
+    assert {
+        call.kwargs["cloud_app"] for call in client.client_class.call_args_list
+    } == {"dlock_xp"}
+
+
+async def test_step_cloud_signs_in_as_the_selected_app(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    with _patch_client(list_keys=[sample_virtual_key]) as client:
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=BREEZE_INPUT
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["cloud_app"] == "schlage_breeze"
+    assert {
+        call.kwargs["cloud_app"] for call in client.client_class.call_args_list
+    } == {"schlage_breeze"}
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.unique_id == "schlage_breeze_user_example_com"
+
+
+async def test_same_email_in_another_app_is_a_separate_account(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    _existing_entry(hass)
+    with _patch_client(list_keys=[sample_virtual_key]):
+        flow = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input=BREEZE_INPUT
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_reauth_signs_in_as_the_entry_app(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "pass",
+            "cloud_app": "schlage_breeze",
+            "keys": [],
+        },
+        unique_id="schlage_breeze_user_example_com",
+    )
+    entry.add_to_hass(hass)
+    with _patch_client(list_keys=[sample_virtual_key]) as client:
+        result = await entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=NEW_INPUT
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["cloud_app"] == "schlage_breeze"
+    assert {
+        call.kwargs["cloud_app"] for call in client.client_class.call_args_list
+    } == {"schlage_breeze"}
+
+
+async def test_reauth_of_an_entry_without_an_app_uses_the_default(
+    hass,
+    enable_custom_integrations,
+    sample_virtual_key,
+) -> None:
+    entry = _existing_entry(hass)
+    with _patch_client(list_keys=[sample_virtual_key]) as client:
+        result = await entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=NEW_INPUT
+        )
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["cloud_app"] == "dlock_xp"
+    assert {
+        call.kwargs["cloud_app"] for call in client.client_class.call_args_list
+    } == {"dlock_xp"}
 
 
 async def test_reauth_shows_confirm_form(hass, enable_custom_integrations) -> None:

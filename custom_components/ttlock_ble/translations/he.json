@@ -23,7 +23,11 @@
         "description": "הזן את פרטי ההתחברות שלך לענן TTLock. הם משמשים פעם אחת להורדת המפתחות לכל מנעול; לאחר מכן, פעולות נעילה/פתיחה מבוצעות באופן לא מקוון דרך Bluetooth.",
         "data": {
           "username": "דוא\"ל",
-          "password": "סיסמה"
+          "password": "סיסמה",
+          "cloud_app": "אפליקציה"
+        },
+        "data_description": {
+          "cloud_app": "האפליקציה מבוססת TTLock שבה נוצר החשבון שלך. החשבונות נפרדים לכל אפליקציה, גם עם אותה כתובת דוא\"ל."
         }
       },
       "manual": {
@@ -121,6 +125,9 @@
     "binary_sensor": {
       "connection": {
         "name": "חיבור Bluetooth"
+      },
+      "door": {
+        "name": "דלת"
       }
     },
     "button": {
@@ -169,6 +176,14 @@
     "switch": {
       "sound": {
         "name": "צליל"
+      }
+    }
+  },
+  "selector": {
+    "cloud_app": {
+      "options": {
+        "dlock_xp": "TTLock / DLock-XP",
+        "schlage_breeze": "Schlage Breeze"
       }
     }
   }

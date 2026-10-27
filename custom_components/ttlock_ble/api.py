@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ttlock_ble import CloudError, TTLockCloud
+from ttlock_ble import CLOUD_APPS, CloudError, TTLockCloud
 
 from .const import CLOUD_ERR_NEW_DEVICE_LOGIN, HTTP_STATUS_UNAUTHORIZED
 from .exceptions import (
@@ -31,9 +31,9 @@ if TYPE_CHECKING:
 class TtlockBleApiClient:
     """Thin async wrapper around `TTLockCloud` for the integration."""
 
-    def __init__(self, *, httpx_client: httpx.AsyncClient) -> None:
-        """Bind to a Home-Assistant-managed `httpx.AsyncClient`."""
-        self._cloud = TTLockCloud(client=httpx_client)
+    def __init__(self, *, httpx_client: httpx.AsyncClient, cloud_app: str) -> None:
+        """Bind to an HA-managed `httpx.AsyncClient`, signing in as `cloud_app`."""
+        self._cloud = TTLockCloud.for_app(CLOUD_APPS[cloud_app], client=httpx_client)
 
     async def async_login(self, username: str, password: str) -> None:
         """Discover the regional endpoint and log into the TTLock cloud."""

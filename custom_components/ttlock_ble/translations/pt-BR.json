@@ -23,7 +23,11 @@
         "description": "Informe suas credenciais do TTLock cloud. Elas são usadas uma única vez para baixar as chaves das fechaduras; depois disso, trancar/destrancar roda offline via Bluetooth.",
         "data": {
           "username": "Email",
-          "password": "Senha"
+          "password": "Senha",
+          "cloud_app": "Aplicativo"
+        },
+        "data_description": {
+          "cloud_app": "O aplicativo baseado no TTLock em que sua conta foi criada. As contas são separadas por aplicativo, mesmo com o mesmo email."
         }
       },
       "manual": {
@@ -121,6 +125,9 @@
     "binary_sensor": {
       "connection": {
         "name": "Conexão Bluetooth"
+      },
+      "door": {
+        "name": "Porta"
       }
     },
     "button": {
@@ -169,6 +176,14 @@
     "switch": {
       "sound": {
         "name": "Som"
+      }
+    }
+  },
+  "selector": {
+    "cloud_app": {
+      "options": {
+        "dlock_xp": "TTLock / DLock-XP",
+        "schlage_breeze": "Schlage Breeze"
       }
     }
   }

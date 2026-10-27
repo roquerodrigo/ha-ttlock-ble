@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from ttlock_ble import CloudError
+from ttlock_ble import CLOUD_APPS, CloudError
 
 from custom_components.ttlock_ble.api import TtlockBleApiClient
 from custom_components.ttlock_ble.exceptions import (
@@ -17,8 +17,18 @@ from custom_components.ttlock_ble.exceptions import (
 
 def _client(mock_cloud: MagicMock) -> TtlockBleApiClient:
     """Wrap the patched TTLockCloud instance in a fresh TtlockBleApiClient."""
-    # Pass a sentinel httpx client; mock_cloud is the value cls(client=...) returns.
-    return TtlockBleApiClient(httpx_client=MagicMock(spec=httpx.AsyncClient))
+    return TtlockBleApiClient(
+        httpx_client=MagicMock(spec=httpx.AsyncClient),
+        cloud_app="dlock_xp",
+    )
+
+
+@pytest.mark.parametrize("cloud_app", ["dlock_xp", "schlage_breeze"])
+def test_client_signs_in_as_the_selected_app(cloud_app: str) -> None:
+    httpx_client = MagicMock(spec=httpx.AsyncClient)
+    with patch("custom_components.ttlock_ble.api.TTLockCloud") as cls:
+        TtlockBleApiClient(httpx_client=httpx_client, cloud_app=cloud_app)
+    cls.for_app.assert_called_once_with(CLOUD_APPS[cloud_app], client=httpx_client)
 
 
 def test_communication_error_is_api_error() -> None:

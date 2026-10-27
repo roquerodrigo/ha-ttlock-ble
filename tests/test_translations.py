@@ -83,7 +83,10 @@ async def test_entity_translation_keys_and_authored_names_agree(
     would look unused by every check that runs before any lock is polled.
     """
     from homeassistant.helpers import entity_registry as er
-    from ttlock_ble import FingerprintEntry
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import FingerprintEntry, LogEntry, LogOperate
+
+    from custom_components.ttlock_ble.connection import log_signal
 
     setup_integration.runtime_data.coordinator._fingerprints[
         sample_virtual_key.lockMac
@@ -98,6 +101,19 @@ async def test_entity_translation_keys_and_authored_names_agree(
     setup_integration.runtime_data.coordinator.async_update_listeners()
     await hass.async_block_till_done()
 
+    # The door sensor only exists once its lock has reported a door record.
+    for key in setup_integration.runtime_data.virtual_keys:
+        async_dispatcher_send(
+            hass,
+            log_signal(key.lockMac),
+            LogEntry(
+                record_number=1,
+                record_type=int(LogOperate.DOOR_SENSOR_LOCK),
+                operate_date=None,
+                lock_battery=80,
+            ),
+        )
+    await hass.async_block_till_done()
     registry = er.async_get(hass)
     requested = {
         (entry.domain, entry.translation_key)

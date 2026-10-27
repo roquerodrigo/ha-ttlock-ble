@@ -42,7 +42,7 @@ This integration wraps the sibling repo [`ttlock-ble`](https://github.com/roquer
 - `custom_components/ttlock_ble/manifest.json` → `requirements: ["ttlock-ble==<version>"]` — this is what HACS/HA actually installs for end users.
 - `pyproject.toml` → `dependency-groups.dev` → `"ttlock-ble==<version>"` — this is what lint/mypy/pytest run against locally and in CI.
 
-If these two pins diverge, CI is green against a different SDK version than what ships to users. A breaking change in the SDK's public API (`TTLockCloud`, `TTLockClient`, `VirtualKey`, `CloudError`, the `disconnected_callback` signature) requires bumping both pins together, then re-running lint + tests here — the SDK repo's own release does not by itself update anything on this side.
+If these two pins diverge, the tests would pass against an SDK version users never get — `tests/test_packaging.py` fails the suite when they differ. A breaking change in the SDK's public API (`TTLockCloud`, `TTLockClient`, `VirtualKey`, `CloudError`, the `disconnected_callback` signature) requires bumping both pins together, then re-running lint + tests here — the SDK repo's own release does not by itself update anything on this side.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py`
 
 `data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
-The two stores are the deliberate exception: `record_store.py` and `device_description_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
+The three stores are the deliberate exception: `record_store.py`, `device_description_store.py` and `clock_sync_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
 
 ### Config flow surface
 
@@ -60,7 +60,7 @@ The two stores are the deliberate exception: `record_store.py` and `device_descr
 
 - `async_step_user` — a menu, nothing else: the entry can come from a cloud account or from a key entered by hand.
 - `async_step_bluetooth` / `async_step_bluetooth_confirm` — the discovery entry point (see below); the confirm step is the same two-option menu, with the lock already identified.
-- `async_step_cloud` — the credential step (named `user` before the menu existed); sets unique_id from username, aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code.
+- `async_step_cloud` — the credential step (named `user` before the menu existed); also asks which TTLock-based app the account belongs to (`CLOUD_APPS` in the SDK), stored as `cloud_app`. Sets unique_id from the username — prefixed with the app for any app but the default, since the same email can hold unrelated accounts in two apps, while the default keeps the bare username older entries carry — and aborts on duplicate. Branches to `async_step_verify_code` when the cloud rejects the login with the 2FA "new device" error code. Reauth and reconfigure never ask for the app: they sign in as the one stored on the entry, `dlock_xp` when it predates the field.
 - `async_step_verify_code` — second step of the 2FA branch; submits the emailed code via `_async_validate_code_and_login` and finalizes entry creation on success.
 - `async_step_reauth` / `async_step_reauth_confirm` — HA's reauth entry points. Nothing in this integration currently raises `ConfigEntryAuthFailed` to trigger them automatically — the coordinator and `connection.py` only ever talk BLE after setup, never the cloud again — so today these steps are reachable only by manually starting a reauth flow for the entry. `async_update_reload_and_abort` rotates credentials in place on success.
 - `async_step_manual` — takes a key obtained outside the cloud (see below); unique_id is the lock's MAC.
@@ -181,6 +181,13 @@ The lock stamps every operation-log record from an RTC it keeps itself: no NTP, 
 ### Sound switch
 
 `switch.py` toggles the lock's keypad/lock beep. Two constraints shape it. Its value comes from the coordinator, which reads the setting with `get_lock_sound()` on a session opened for something else — the poll after a command, or an advertised operation-log read that landed — never by connecting for it, and at most once per `SOUND_CHECK_INTERVAL_SECONDS`, because the read costs the admin handshake and the official app is the only thing that changes the setting behind our back. A write the lock accepted is adopted straight away through `async_note_sound_enabled`, and the next paced read confirms it. Until either has happened the entity reports `unknown`. And it is only created for a key that `can_administer` (`key_privileges.py`: both `is_admin()` and an `adminPs`): the firmware gates the command and the read behind CHECK_ADMIN, and a manual-key entry usually has neither, where the entity could only ever fail — the coordinator applies the same test before reading, so such a key is never asked.
+
+### Door sensor
+
+`binary_sensor.py`'s `TtlockBleDoorBinarySensor` reads the door from the operation log: record 31 (`DOOR_SENSOR_UNLOCK`) and 64 (`DOOR_NOT_CLOSE_ALARM`) mean open, 30 (`DOOR_SENSOR_LOCK`) closed. Two things shape it:
+
+- **It is created by the first door record, not at setup.** The key's feature bits only say the lock *supports* a sensor, not that one is paired, and a manual key carries none. Once registered, setup creates it straight away and `RestoreEntity` brings back the last state, because a door record may not come for days.
+- **One listener per lock feeds it, before and after it exists.** Records are dispatched in a synchronous batch; an entity that subscribed itself once added would miss the rest of the batch that created it, and an "opened, closed" pair would leave it reporting open.
 
 ### Diagnostics
 
