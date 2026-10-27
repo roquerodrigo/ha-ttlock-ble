@@ -20,6 +20,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Bluetooth discovery** — a lock in range of any radio Home Assistant manages shows up on its own as a discovered device; the address and the frame header come off the advertisement, so only the keys are left to provide.
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
 - **Other TTLock-based apps** — accounts created in the Schlage Breeze app sign in the same way, by picking the app at setup.
+- **Door sensor** — a lock with a paired door sensor gets a door entity, created the first time the lock reports the door.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
 - **Connects only on demand** — nothing is held open. A session is opened when a command needs the lock, when the lock advertises that it has records worth reading, or when the permanent connection option asks for one.
@@ -29,13 +30,14 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 
 ## Entities
 
-Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to seven entities:
+Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to eight entities:
 
 | Entity | Domain | Purpose |
 |---|---|---|
 | `lock.<alias>` | `lock` | Locked/unlocked state, with optimistic updates, `locking`/`unlocking` transitional states and a post-command settle window. |
 | `sensor.<alias>_battery` | `sensor` | Battery percentage (diagnostic). |
 | `binary_sensor.<alias>_bluetooth_connection` | `binary_sensor` | Whether a BLE session is open right now (connectivity, diagnostic). A healthy idle lock holds none, so `off` says nothing about whether the lock is reachable. |
+| `binary_sensor.<alias>_door` | `binary_sensor` | Whether the door is open, from the door-sensor records in the operation log. Created the first time the lock reports its door, so a lock without a paired sensor never gets one; it follows the door a few seconds behind, once the lock's new records have been read. |
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
@@ -119,7 +121,7 @@ custom_components/ttlock_ble/
 ├── __init__.py        # config-entry lifecycle: setup / unload / reload
 ├── advertisement.py   # TtlockBleAdvertisementTracker: state from advertisements
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
-├── binary_sensor.py   # TtlockBleConnectionBinarySensor: live BLE link state
+├── binary_sensor.py   # TtlockBleConnectionBinarySensor + TtlockBleDoorBinarySensor
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock

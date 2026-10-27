@@ -182,6 +182,13 @@ The lock stamps every operation-log record from an RTC it keeps itself: no NTP, 
 
 `switch.py` toggles the lock's keypad/lock beep. Two constraints shape it. Its value comes from the coordinator, which reads the setting with `get_lock_sound()` on a session opened for something else — the poll after a command, or an advertised operation-log read that landed — never by connecting for it, and at most once per `SOUND_CHECK_INTERVAL_SECONDS`, because the read costs the admin handshake and the official app is the only thing that changes the setting behind our back. A write the lock accepted is adopted straight away through `async_note_sound_enabled`, and the next paced read confirms it. Until either has happened the entity reports `unknown`. And it is only created for a key that `can_administer` (`key_privileges.py`: both `is_admin()` and an `adminPs`): the firmware gates the command and the read behind CHECK_ADMIN, and a manual-key entry usually has neither, where the entity could only ever fail — the coordinator applies the same test before reading, so such a key is never asked.
 
+### Door sensor
+
+`binary_sensor.py`'s `TtlockBleDoorBinarySensor` reads the door from the operation log: record 31 (`DOOR_SENSOR_UNLOCK`) and 64 (`DOOR_NOT_CLOSE_ALARM`) mean open, 30 (`DOOR_SENSOR_LOCK`) closed. Two things shape it:
+
+- **It is created by the first door record, not at setup.** The key's feature bits only say the lock *supports* a sensor, not that one is paired, and a manual key carries none. Once registered, setup creates it straight away and `RestoreEntity` brings back the last state, because a door record may not come for days.
+- **One listener per lock feeds it, before and after it exists.** Records are dispatched in a synchronous batch; an entity that subscribed itself once added would miss the rest of the batch that created it, and an "opened, closed" pair would leave it reporting open.
+
 ### Diagnostics
 
 `diagnostics.py` returns `TtlockBleDiagnosticsPayload`. `username`/`password`/`aesKeyStr`/`unlockKey`/`adminPs`/`keys` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
