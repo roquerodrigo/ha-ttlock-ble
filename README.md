@@ -19,12 +19,13 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Clock alignment** — the lock's own clock, which stamps every operation-log record, is compared against local time once a day on a session something else already opened, and corrected when it has wandered. A diagnostic sensor reports the measured drift.
 - **Bluetooth discovery** — a lock in range of any radio Home Assistant manages shows up on its own as a discovered device; the address and the frame header come off the advertisement, so only the keys are left to provide.
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
+- **Other TTLock-based apps** — accounts created in the Schlage Breeze app sign in the same way, by picking the app at setup.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
 - **Connects only on demand** — nothing is held open. A session is opened when a command needs the lock, when the lock advertises that it has records worth reading, or when the permanent connection option asks for one.
 - **Reauth + reconfigure** — re-prompt for credentials in place when the cloud rejects the cached login, or edit them via the integration's three-dot menu.
 - **Diagnostics** — downloadable dump with credentials/keys redacted.
-- **Translations** — English and Brazilian Portuguese (parity enforced by tests).
+- **Translations** — English, Brazilian Portuguese and Hebrew (parity enforced by tests).
 
 ## Entities
 
@@ -48,7 +49,7 @@ The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `p
 2. Restart Home Assistant.
 3. Settings → Devices & Services → either pick the **TTLock BLE** card already waiting under *Discovered* (any lock in range of a radio Home Assistant manages announces itself), or Add Integration → **TTLock BLE**.
 4. Choose how the keys are obtained:
-   - **Sign in to a TTLock account** — enter the email + password you use in the official app. If TTLock has never seen this Home Assistant before it emails a verification code; paste it into the next step. Every lock on the account is synced at once.
+   - **Sign in to a TTLock account** — pick the app your account was created in (*TTLock / DLock-XP*, or *Schlage Breeze*), then enter the email + password you use in it. If TTLock has never seen this Home Assistant before it emails a verification code; paste it into the next step. Every lock on the account is synced at once.
    - **Enter a lock key manually** — for a lock initialised outside the cloud. See below.
 5. From this point on, all lock / unlock / state operations stay on Bluetooth.
 

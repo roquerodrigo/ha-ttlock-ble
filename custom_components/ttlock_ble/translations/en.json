@@ -23,7 +23,11 @@
         "description": "Enter your TTLock cloud credentials. They are used once to download the per-lock keys; after that, lock/unlock runs offline over Bluetooth.",
         "data": {
           "username": "Email",
-          "password": "Password"
+          "password": "Password",
+          "cloud_app": "App"
+        },
+        "data_description": {
+          "cloud_app": "The TTLock-based app your account was created in. Accounts are separate per app, even with the same email."
         }
       },
       "manual": {
@@ -158,6 +162,14 @@
     "switch": {
       "sound": {
         "name": "Sound"
+      }
+    }
+  },
+  "selector": {
+    "cloud_app": {
+      "options": {
+        "dlock_xp": "TTLock / DLock-XP",
+        "schlage_breeze": "Schlage Breeze"
       }
     }
   }

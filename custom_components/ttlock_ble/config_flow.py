@@ -14,9 +14,11 @@ from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import slugify
 
+from ttlock_ble import CLOUD_APPS
+
 from .advertisement import decode_lock_advertisement
 from .api import TtlockBleApiClient
-from .const import DOMAIN, LOGGER
+from .const import CONF_CLOUD_APP, DEFAULT_CLOUD_APP, DOMAIN, LOGGER
 from .exceptions import (
     TtlockBleApiClientAuthenticationError,
     TtlockBleApiClientCommunicationError,
@@ -53,9 +55,14 @@ DEFAULT_GROUP_ID = 1
 DEFAULT_ORG_ID = 1
 
 
-def _credentials_schema(default_username: str | None = None) -> vol.Schema:
-    """Build the username/password schema, optionally pre-filled."""
-    return vol.Schema(
+def _credentials_schema(
+    default_username: str | None = None,
+    *,
+    ask_cloud_app: bool = False,
+    default_cloud_app: str = DEFAULT_CLOUD_APP,
+) -> vol.Schema:
+    """Build the credentials schema, optionally pre-filled and with the app picker."""
+    schema = vol.Schema(
         {
             vol.Required(
                 CONF_USERNAME,
@@ -70,6 +77,34 @@ def _credentials_schema(default_username: str | None = None) -> vol.Schema:
             ),
         },
     )
+    if not ask_cloud_app:
+        return schema
+    return schema.extend(
+        {
+            vol.Required(CONF_CLOUD_APP, default=default_cloud_app): (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(CLOUD_APPS),
+                        translation_key=CONF_CLOUD_APP,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                )
+            ),
+        },
+    )
+
+
+def _account_unique_id(username: str, cloud_app: str) -> str:
+    """
+    Key a cloud entry by the account, which is the username within one app.
+
+    The same email can hold unrelated accounts in two TTLock-based apps,
+    so any app but the default one is part of the id. The default app
+    keeps the bare username every entry created before the picker used.
+    """
+    if cloud_app == DEFAULT_CLOUD_APP:
+        return slugify(username)
+    return slugify(f"{cloud_app}_{username}")
 
 
 def _manual_key_schema(
@@ -166,6 +201,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     _username: str
     _password: str
+    _cloud_app: str = DEFAULT_CLOUD_APP
     _discovery: BluetoothServiceInfoBleak | None = None
     _discovered_advertisement: LockAdvertisement | None = None
     _discovered_name: str = ""
@@ -240,7 +276,10 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Collect credentials and either create the entry or branch to 2FA."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            await self.async_set_unique_id(slugify(user_input["username"]))
+            self._cloud_app = user_input.get("cloud_app", DEFAULT_CLOUD_APP)
+            await self.async_set_unique_id(
+                _account_unique_id(user_input["username"], self._cloud_app),
+            )
             self._abort_if_unique_id_configured()
             self._username = user_input["username"]
             self._password = user_input["password"]
@@ -255,6 +294,8 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="cloud",
             data_schema=_credentials_schema(
                 default_username=user_input["username"] if user_input else None,
+                ask_cloud_app=True,
+                default_cloud_app=self._cloud_app,
             ),
             errors=errors,
         )
@@ -483,8 +524,11 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """
         errors: dict[str, str] = {}
         existing = cast("TtlockBleConfigData", cast("object", entry.data))
+        self._cloud_app = existing.get("cloud_app", DEFAULT_CLOUD_APP)
         if user_input is not None:
-            await self.async_set_unique_id(slugify(user_input["username"]))
+            await self.async_set_unique_id(
+                _account_unique_id(user_input["username"], self._cloud_app),
+            )
             self._abort_if_unique_id_mismatch(reason="wrong_account")
             self._username = user_input["username"]
             self._password = user_input["password"]
@@ -501,9 +545,17 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    @callback
+    def _api_client(self) -> TtlockBleApiClient:
+        """Return a cloud client signing in as the app this flow is about."""
+        return TtlockBleApiClient(
+            httpx_client=get_async_client(self.hass),
+            cloud_app=self._cloud_app,
+        )
+
     async def _async_login_and_maybe_request_code(self) -> dict[str, str]:
         """Try the cloud login; on -1014 emit the verification code."""
-        client = TtlockBleApiClient(httpx_client=get_async_client(self.hass))
+        client = self._api_client()
         try:
             await client.async_login(self._username, self._password)
         except TtlockBleApiClientVerificationRequiredError as exc:
@@ -537,7 +589,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_validate_code_and_login(self, code: str) -> dict[str, str]:
         """Submit the verification code and complete login."""
-        client = TtlockBleApiClient(httpx_client=get_async_client(self.hass))
+        client = self._api_client()
         try:
             await client.async_validate_new_device_and_login(
                 self._username,
@@ -557,7 +609,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_login_for_existing_entry(self) -> dict[str, str]:
         """Login path used by reauth/reconfigure (no 2FA branch)."""
-        client = TtlockBleApiClient(httpx_client=get_async_client(self.hass))
+        client = self._api_client()
         try:
             await client.async_login(self._username, self._password)
         except TtlockBleApiClientVerificationRequiredError as exc:
@@ -592,6 +644,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
+            "cloud_app": self._cloud_app,
             "keys": keys,
         }
         return self.async_create_entry(title=self._username, data=dict(data)), {}
@@ -608,6 +661,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         data: TtlockBleConfigData = {
             "username": self._username,
             "password": self._password,
+            "cloud_app": self._cloud_app,
             "keys": keys,
         }
         return self.async_update_reload_and_abort(entry, data_updates=dict(data)), {}
@@ -624,7 +678,7 @@ class TtlockBleFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         discard that work behind a generic error dialog instead of
         re-showing the form.
         """
-        client = TtlockBleApiClient(httpx_client=get_async_client(self.hass))
+        client = self._api_client()
         try:
             await client.async_login(self._username, self._password)
             virtual_keys = await client.async_list_keys()

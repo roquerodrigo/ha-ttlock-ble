@@ -109,7 +109,7 @@ def mock_cloud() -> Generator[MagicMock]:
         instance.list_keys = AsyncMock(return_value=[])
         instance.aclose = AsyncMock(return_value=None)
         instance.creds = MagicMock(uid=1234, access_token="tok")
-        cls.return_value = instance
+        cls.for_app.return_value = instance
         yield instance
 
 
