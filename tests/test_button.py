@@ -78,6 +78,62 @@ async def test_refresh_button_lives_on_the_fingerprints_hub_device(
     assert button_entry.device_id == hub_device.id
 
 
+async def test_refresh_button_survives_setting_up_before_any_lock_platform(
+    hass,
+    enable_bluetooth,
+    enable_custom_integrations,
+    sample_stored_key,
+    sample_virtual_key,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    """
+    The hub links to the lock device even when no other platform made it yet.
+
+    Platforms are forwarded concurrently, so the button can run first. Setting
+    up the button platform alone pins that order instead of leaving it to chance.
+    """
+    from unittest.mock import patch
+
+    from homeassistant.const import Platform
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers.device_registry import format_mac
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.ttlock_ble.PLATFORMS", [Platform.BUTTON]):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        formatted = format_mac(sample_virtual_key.lockMac)
+        device_registry = dr.async_get(hass)
+        lock_device = device_registry.async_get_device_by_identifier(
+            (DOMAIN, formatted), entry.entry_id
+        )
+        hub_device = device_registry.async_get_device_by_identifier(
+            (DOMAIN, f"{formatted}_fingerprints"), entry.entry_id
+        )
+        assert lock_device is not None
+        assert hub_device is not None
+        assert hub_device.via_device_id == lock_device.id
+
+        buttons = hass.states.async_all("button")
+        assert len(buttons) == 1
+        button_entry = er.async_get(hass).async_get(buttons[0].entity_id)
+        assert button_entry is not None
+        assert button_entry.device_id == hub_device.id
+
+        await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_refresh_button_press_forces_a_read_bypassing_the_pacing(
     hass,
     setup_integration,

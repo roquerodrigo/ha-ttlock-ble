@@ -83,6 +83,28 @@ def _async_prune_stale_devices(
             )
 
 
+@callback
+def _async_register_lock_devices(
+    hass: HomeAssistant,
+    entry: TtlockBleConfigEntry,
+    virtual_keys: list[VirtualKey],
+) -> None:
+    """
+    Create each lock's registry device before any platform is set up.
+
+    Platforms are forwarded concurrently, and the fingerprints hub links to
+    the lock device by looking it up — when the button platform ran first,
+    that lookup raised and the button was dropped. The entities' own
+    `device_info` still fills in the name, model and connections.
+    """
+    device_registry = async_get_device_registry(hass)
+    for key in virtual_keys:
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, format_mac(key.lockMac))},
+        )
+
+
 async def async_remove_config_entry_device(
     hass: HomeAssistant,  # noqa: ARG001
     entry: TtlockBleConfigEntry,
@@ -165,6 +187,7 @@ async def async_setup_entry(
         bluetooth_unsubs=bluetooth_unsubs,
     )
 
+    _async_register_lock_devices(hass, entry, virtual_keys)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
