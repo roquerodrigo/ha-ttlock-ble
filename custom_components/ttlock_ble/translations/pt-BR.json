@@ -121,6 +121,11 @@
       }
     }
   },
+  "device": {
+    "fingerprints": {
+      "name": "{lock} Digitais"
+    }
+  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -128,6 +133,11 @@
       },
       "door": {
         "name": "Porta"
+      }
+    },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "Atualizar"
       }
     },
     "event": {
@@ -158,6 +168,12 @@
       "clock_drift": {
         "name": "Desvio do relógio"
       },
+      "fingerprint_count": {
+        "name": "Quantidade"
+      },
+      "fingerprint_number": {
+        "name": "Número"
+      },
       "last_seen": {
         "name": "Visto por último"
       }
@@ -166,6 +182,11 @@
       "sound": {
         "name": "Som"
       }
+    }
+  },
+  "exceptions": {
+    "fingerprints_not_read": {
+      "message": "Não foi possível ler as digitais de {lock}. Verifique se a fechadura está ao alcance e tente novamente."
     }
   },
   "selector": {

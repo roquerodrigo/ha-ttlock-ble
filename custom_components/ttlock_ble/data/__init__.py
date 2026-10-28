@@ -18,6 +18,7 @@ from .diagnostics_advertisement import TtlockBleDiagnosticsAdvertisement
 from .diagnostics_entry import TtlockBleDiagnosticsEntry
 from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
 from .diagnostics_payload import TtlockBleDiagnosticsPayload
+from .enrolled_fingerprint import TtlockBleEnrolledFingerprint
 from .lock_event_attributes import TtlockBleLogEventAttributes
 from .lock_state import TtlockBleLockState
 from .log_cursor import TtlockBleLogCursor
@@ -48,6 +49,7 @@ __all__ = [
     "TtlockBleDiagnosticsEntry",
     "TtlockBleDiagnosticsLockSummary",
     "TtlockBleDiagnosticsPayload",
+    "TtlockBleEnrolledFingerprint",
     "TtlockBleLockState",
     "TtlockBleLogCursor",
     "TtlockBleLogEventAttributes",

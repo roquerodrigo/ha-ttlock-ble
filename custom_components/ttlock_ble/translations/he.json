@@ -121,6 +121,11 @@
       }
     }
   },
+  "device": {
+    "fingerprints": {
+      "name": "{lock} טביעות אצבע"
+    }
+  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -128,6 +133,11 @@
       },
       "door": {
         "name": "דלת"
+      }
+    },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "רענון"
       }
     },
     "event": {
@@ -158,6 +168,12 @@
       "clock_drift": {
         "name": "סטיית שעון"
       },
+      "fingerprint_count": {
+        "name": "כמות"
+      },
+      "fingerprint_number": {
+        "name": "מספר"
+      },
       "last_seen": {
         "name": "נראה לאחרונה"
       }
@@ -166,6 +182,11 @@
       "sound": {
         "name": "צליל"
       }
+    }
+  },
+  "exceptions": {
+    "fingerprints_not_read": {
+      "message": "לא ניתן לקרוא את טביעות האצבע של {lock}. ודאו שהמנעול בטווח ונסו שוב."
     }
   },
   "selector": {

@@ -195,13 +195,31 @@ async def test_setup_prunes_devices_for_removed_locks(
     entry.add_to_hass(hass)
     registry = device_registry.async_get(hass)
     stale_mac = "aa:bb:cc:dd:ee:00"
-    registry.async_get_or_create(
+    stale_lock = registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, stale_mac)},
         name="Removed lock",
     )
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"{stale_mac}_fingerprints")},
+        via_device_id=stale_lock.id,
+    )
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+
+    assert (
+        registry.async_get_device_by_identifier(
+            (DOMAIN, f"{stale_mac}_fingerprints"), entry.entry_id
+        )
+        is None
+    )
+    assert (
+        registry.async_get_device_by_identifier(
+            (DOMAIN, "aa:bb:cc:dd:ee:ff_fingerprints"), entry.entry_id
+        )
+        is not None
+    )
 
     assert (
         registry.async_get_device_by_identifier((DOMAIN, stale_mac), entry.entry_id)
@@ -227,6 +245,23 @@ async def test_remove_config_entry_device_denies_a_configured_lock(
     registry = device_registry.async_get(hass)
     device = registry.async_get_device_by_identifier(
         (DOMAIN, "aa:bb:cc:dd:ee:ff"), setup_integration.entry_id
+    )
+    assert device is not None
+    assert not await async_remove_config_entry_device(hass, setup_integration, device)
+
+
+async def test_remove_config_entry_device_denies_a_configured_locks_fingerprints(
+    hass, setup_integration
+) -> None:
+    """The fingerprints device follows its lock, not a MAC of its own."""
+    from homeassistant.helpers import device_registry
+
+    from custom_components.ttlock_ble import async_remove_config_entry_device
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    registry = device_registry.async_get(hass)
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, "aa:bb:cc:dd:ee:ff_fingerprints"), setup_integration.entry_id
     )
     assert device is not None
     assert not await async_remove_config_entry_device(hass, setup_integration, device)

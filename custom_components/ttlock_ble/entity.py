@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.helpers.device_registry import (
     CONNECTION_BLUETOOTH,
+    ChildDeviceInfo,
     DeviceInfo,
     format_mac,
 )
@@ -36,7 +37,7 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
         self._key = key
 
     @property
-    def device_info(self) -> DeviceInfo:
+    def device_info(self) -> DeviceInfo | ChildDeviceInfo:
         """
         One Home Assistant device per physical lock, keyed by MAC.
 
@@ -51,7 +52,7 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
         device_info = DeviceInfo(
             identifiers={(DOMAIN, mac)},
             connections={(CONNECTION_BLUETOOTH, mac)},
-            name=self._key.lockAlias or self._key.lockName or self._key.lockMac,
+            name=self._lock_name,
             manufacturer=MANUFACTURER,
             model=model or self._protocol_model,
         )
@@ -66,6 +67,11 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
         if description["firmware_version"]:
             device_info["sw_version"] = description["firmware_version"]
         return device_info
+
+    @property
+    def _lock_name(self) -> str:
+        """Return the lock's display name: alias, then lock name, then MAC."""
+        return self._key.lockAlias or self._key.lockName or self._key.lockMac
 
     @property
     def _protocol_model(self) -> str:

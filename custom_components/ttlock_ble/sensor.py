@@ -1,4 +1,4 @@
-"""Sensor platform for ttlock_ble — battery level, last contact and clock drift."""
+"""Sensor platform for ttlock_ble — battery, contact, clock drift, fingerprints."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ from homeassistant.util import dt as dt_util
 
 from .connection import event_signal
 from .entity import TtlockBleEntity
+from .fingerprint_entity import TtlockBleFingerprintEntity
+from .fingerprint_tracker import TtlockBleFingerprintTracker
+from .fingerprints_hub_entity import TtlockBleFingerprintsHubEntity
+from .key_privileges import can_administer
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -32,7 +36,7 @@ if TYPE_CHECKING:
     from ttlock_ble import LockEvent, VirtualKey
 
     from .coordinator import TtlockBleDataUpdateCoordinator
-    from .data import TtlockBleConfigEntry
+    from .data import TtlockBleConfigEntry, TtlockBleEnrolledFingerprint
 
 # How often the recorded advertisement time is re-read. Costs nothing on
 # the wire: it only looks at what the bluetooth manager already holds.
@@ -40,11 +44,11 @@ LAST_SEEN_REFRESH_INTERVAL = timedelta(seconds=30)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create the battery and last-seen sensors for every `VirtualKey`."""
+    """Create the per-lock sensors, then one sensor per enrolled fingerprint."""
     data = entry.runtime_data
     async_add_entities(
         sensor
@@ -53,8 +57,22 @@ async def async_setup_entry(
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
             TtlockBleClockDriftSensor(data.coordinator, key),
+            *(
+                (TtlockBleFingerprintCountSensor(data.coordinator, key),)
+                if can_administer(key)
+                else ()
+            ),
         )
     )
+
+    def _create_fingerprint_sensor(
+        key: VirtualKey, fingerprint: TtlockBleEnrolledFingerprint
+    ) -> TtlockBleFingerprintNumberSensor:
+        return TtlockBleFingerprintNumberSensor(data.coordinator, key, fingerprint)
+
+    TtlockBleFingerprintTracker(
+        hass, entry, async_add_entities, _create_fingerprint_sensor
+    ).async_start()
 
 
 class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
@@ -243,3 +261,39 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
             age = MONOTONIC_TIME() - service_info.time
             self._attr_native_value = dt_util.utcnow() - timedelta(seconds=age)
         return self._attr_native_value
+
+
+class TtlockBleFingerprintCountSensor(TtlockBleFingerprintsHubEntity, SensorEntity):
+    """How many fingerprints the lock lists, as of the last read."""
+
+    _attr_translation_key = "fingerprint_count"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_fingerprint_count"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return how many fingerprints the last read listed, if any."""
+        fingerprints = self.coordinator.async_fingerprints(self._key.lockMac)
+        return None if fingerprints is None else len(fingerprints)
+
+
+class TtlockBleFingerprintNumberSensor(TtlockBleFingerprintEntity, SensorEntity):
+    """The fingerprint's number, as the official app shows it."""
+
+    _attr_translation_key = "fingerprint_number"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_fingerprint_{self._fingerprint.token}"
+
+    @property
+    def native_value(self) -> int:
+        """Return the fingerprint's number."""
+        return self._fingerprint.number

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
-    from ttlock_ble import LockAdvertisement
+    from ttlock_ble import FingerprintEntry, LockAdvertisement
 
     from .clock_sync_store import TtlockBleClockSyncStore
     from .connection import TtlockBleConnection
@@ -85,6 +85,10 @@ CLOCK_DRIFT_THRESHOLD_SECONDS = 30.0
 # admin handshake plus its own round trip, and the setting rarely moves.
 SOUND_CHECK_INTERVAL_SECONDS = 60 * 60
 
+# How long between reads of the enrolled fingerprint list. Each read walks
+# the whole list, one round trip per fingerprint, behind the admin handshake.
+FINGERPRINT_CHECK_INTERVAL_SECONDS = 30 * 60
+
 # Above this, a correction is worth a line in the log at INFO. A lock
 # does not drift by minutes on its own - a gap that size usually means
 # it was set up on a different wall clock than Home Assistant keeps.
@@ -120,6 +124,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._described: set[str] = set()
         self._sound_enabled: dict[str, bool] = {}
         self._sound_checked_at: dict[str, float] = {}
+        self._fingerprints: dict[str, list[FingerprintEntry]] = {}
+        self._fingerprints_checked_at: dict[str, float] = {}
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
@@ -165,6 +171,11 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
     def async_sound_enabled(self, mac: str) -> bool | None:
         """Return whether the beep of `mac` is on, as last read or written."""
         return self._sound_enabled.get(mac)
+
+    @callback
+    def async_fingerprints(self, mac: str) -> list[FingerprintEntry] | None:
+        """Return the last-read fingerprint list for `mac`, if any."""
+        return self._fingerprints.get(mac)
 
     @callback
     def async_note_sound_enabled(self, mac: str, *, enabled: bool) -> None:
@@ -398,6 +409,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             # as if the log itself had failed.
             await self._async_align_clock(connection)
             await self._async_read_sound(connection)
+            await self._async_read_fingerprints(connection)
         finally:
             self._log_fetches.discard(mac)
             if self._records_pending.get(mac, False):
@@ -445,6 +457,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         await self._async_describe(connection)
         await self._async_align_clock(connection)
         await self._async_read_sound(connection)
+        await self._async_read_fingerprints(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
@@ -578,6 +591,42 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         if checked_at is None:
             return True
         return self.hass.loop.time() - checked_at >= SOUND_CHECK_INTERVAL_SECONDS
+
+    async def _async_read_fingerprints(
+        self, connection: TtlockBleConnection, *, force: bool = False
+    ) -> bool:
+        """
+        Read the enrolled fingerprint list. Reports whether a list was read.
+
+        The firmware lists them only to an admin key, so a key without
+        the admin password is never asked; `force` skips the pacing
+        only. A read that did not land leaves the pacing untouched, so
+        the next session tries again.
+        """
+        mac = connection.key.lockMac
+        if not can_administer(connection.key):
+            return False
+        if not force and not self._async_fingerprints_check_due(mac):
+            return False
+        fingerprints = await connection.async_get_fingerprints()
+        if fingerprints is None:
+            return False
+        self._fingerprints_checked_at[mac] = self.hass.loop.time()
+        LOGGER.debug("Fingerprints of %s: %d enrolled", mac, len(fingerprints))
+        self._fingerprints[mac] = fingerprints
+        self.async_update_listeners()
+        return True
+
+    def _async_fingerprints_check_due(self, mac: str) -> bool:
+        """Report whether `mac` is due for a fingerprint-list read."""
+        checked_at = self._fingerprints_checked_at.get(mac)
+        if checked_at is None:
+            return True
+        return self.hass.loop.time() - checked_at >= FINGERPRINT_CHECK_INTERVAL_SECONDS
+
+    async def async_refresh_fingerprints(self, mac: str) -> bool:
+        """Read the fingerprint list of `mac` now, connecting if needed."""
+        return await self._async_read_fingerprints(self._connections[mac], force=True)
 
     def _async_clock_check_due(self, mac: str) -> bool:
         """Report whether `mac` is due for a clock comparison."""

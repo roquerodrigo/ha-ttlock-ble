@@ -121,6 +121,11 @@
       }
     }
   },
+  "device": {
+    "fingerprints": {
+      "name": "{lock} Fingerprints"
+    }
+  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -128,6 +133,11 @@
       },
       "door": {
         "name": "Door"
+      }
+    },
+    "button": {
+      "refresh_fingerprints": {
+        "name": "Refresh"
       }
     },
     "event": {
@@ -158,6 +168,12 @@
       "clock_drift": {
         "name": "Clock drift"
       },
+      "fingerprint_count": {
+        "name": "Count"
+      },
+      "fingerprint_number": {
+        "name": "Number"
+      },
       "last_seen": {
         "name": "Last seen"
       }
@@ -166,6 +182,11 @@
       "sound": {
         "name": "Sound"
       }
+    }
+  },
+  "exceptions": {
+    "fingerprints_not_read": {
+      "message": "Could not read the fingerprints of {lock}. Make sure the lock is in range and try again."
     }
   },
   "selector": {

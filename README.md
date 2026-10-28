@@ -45,6 +45,17 @@ Each configured lock produces one HA device, named with the model, hardware and 
 
 The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
 
+### Fingerprints
+
+An admin key also gets a **"\<lock\> Fingerprints"** device, linked to the lock's own device, carrying:
+
+| Entity | Domain | Purpose |
+|---|---|---|
+| Count | `sensor` | How many fingerprints the lock lists (diagnostic). `unknown` until a session has carried a read. |
+| Refresh | `button` | Reads the list now instead of on the next session. No advertisement or push event tells a fingerprint change apart from any other record, so the list is otherwise read at most every 30 minutes, on a session opened for something else. Fails with an error when the lock cannot be reached. |
+
+Every enrolled fingerprint gets a device of its own, nested under the Fingerprints device and named by the number the official app shows for it. Its single `sensor` carries that same number (diagnostic). Rename the device to label whose fingerprint it is: the device, its name and its entity survive restarts, and they are removed when the lock no longer lists the fingerprint. The list says nothing about cyclic (day-of-week or time-range) restrictions, so a fingerprint shown here may still be limited to certain days or hours.
+
 ## Installation
 
 1. Install via HACS using the button above, or add this repo as a custom HACS repository (category: Integration).
@@ -123,6 +134,7 @@ custom_components/ttlock_ble/
 ├── api.py             # TtlockBleApiClient: TTLockCloud wrapper (cloud bootstrap only)
 ├── binary_sensor.py   # TtlockBleConnectionBinarySensor + TtlockBleDoorBinarySensor
 ├── brand/             # icon / logo PNGs (local placeholder for HA brand registry)
+├── button.py          # TtlockBleRefreshFingerprintsButton: force a fingerprint read (admin keys only)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
 ├── const.py           # DOMAIN, LOGGER, defaults
@@ -133,16 +145,21 @@ custom_components/ttlock_ble/
 ├── entity.py          # base CoordinatorEntity with DeviceInfo
 ├── event.py           # TtlockBleLogEvent: operation-log records as HA events
 ├── exceptions/        # one file per exception class
+├── fingerprint_entity.py       # base entity on one fingerprint's child device
+├── fingerprint_identifiers.py  # device identifiers of the lock, fingerprints device and fingerprints
+├── fingerprint_tracker.py      # one entity per enrolled fingerprint, restored and pruned
+├── fingerprints_hub_entity.py  # base entity on the lock's Fingerprints device
 ├── lock.py            # TtlockBleLock: LockEntity backed by the connection
 ├── manifest.json
 ├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── options_flow.py    # TtlockBleOptionsFlow: permanent_connection
 ├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
-├── sensor.py          # battery, last-seen and clock-drift sensors
+├── sensor.py          # battery, last-seen, clock-drift, fingerprint count/number sensors
 ├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
 └── translations/
     ├── en.json
+    ├── he.json
     └── pt-BR.json
 ```
 
