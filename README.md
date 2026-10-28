@@ -43,7 +43,9 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
 | `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep, read back from the lock on sessions opened for something else and re-read at most hourly. `unknown` until a session has carried a read. Only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
 
-The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
+The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `credential_name`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
+
+`credential_name` says whose credential it was, when that is known: for a fingerprint record, the name of that fingerprint's device (see [Fingerprints](#fingerprints)), so renaming the device to the person's name is enough to know who opened the door; for a lock or unlock sent over BLE by this integration, `Home Assistant`. Keypad codes stay unnamed, since the only thing the lock records for them is the code itself.
 
 ### Fingerprints
 
@@ -54,7 +56,7 @@ An admin key also gets a **"\<lock\> Fingerprints"** device, linked to the lock'
 | Count | `sensor` | How many fingerprints the lock lists (diagnostic). `unknown` until a session has carried a read. |
 | Refresh | `button` | Reads the list now instead of on the next session. No advertisement or push event tells a fingerprint change apart from any other record, so the list is otherwise read at most every 30 minutes, on a session opened for something else. Fails with an error when the lock cannot be reached. |
 
-Every enrolled fingerprint gets a device of its own, nested under the Fingerprints device and named by the number the official app shows for it. Its single `sensor` carries that same number (diagnostic). Rename the device to label whose fingerprint it is: the device, its name and its entity survive restarts, and they are removed when the lock no longer lists the fingerprint. The list says nothing about cyclic (day-of-week or time-range) restrictions, so a fingerprint shown here may still be limited to certain days or hours.
+Every enrolled fingerprint gets a device of its own, nested under the Fingerprints device and named by the number the official app shows for it. Its single `sensor` carries that same number (diagnostic). Rename the device to label whose fingerprint it is — that name becomes the `credential_name` of its log events. The device, its name and its entity survive restarts, and they are removed when the lock no longer lists the fingerprint. The list says nothing about cyclic (day-of-week or time-range) restrictions, so a fingerprint shown here may still be limited to certain days or hours.
 
 ## Installation
 
@@ -137,6 +139,7 @@ custom_components/ttlock_ble/
 ├── button.py          # TtlockBleRefreshFingerprintsButton: force a fingerprint read (admin keys only)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
+├── credential_namer.py  # TtlockBleCredentialNamer: whose credential a log record was
 ├── const.py           # DOMAIN, LOGGER, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection
 ├── data/              # one TypedDict/dataclass per file + type aliases in __init__.py

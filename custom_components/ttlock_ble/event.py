@@ -17,6 +17,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from ttlock_ble import LogOperate
 
 from .connection import log_signal
+from .credential_namer import TtlockBleCredentialNamer
 from .entity import TtlockBleEntity
 
 if TYPE_CHECKING:
@@ -271,6 +272,11 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
             PASSCODE_RECORD_TYPES
         ):
             attributes["credential"] = entry.password
+        credential_name = TtlockBleCredentialNamer(
+            self.hass, self.coordinator.config_entry.entry_id
+        ).name_of(self._key.lockMac, entry)
+        if credential_name is not None:
+            attributes["credential_name"] = credential_name
         if entry.key_id is not None:
             attributes["key_id"] = entry.key_id
         if entry.accessory_battery is not None:
