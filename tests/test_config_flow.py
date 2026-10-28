@@ -4,8 +4,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import probatio
 import pytest
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -811,7 +811,7 @@ def _schema_defaults(schema) -> dict:
     return {
         str(marker): marker.default()
         for marker in schema.schema
-        if marker.default is not vol.UNDEFINED
+        if marker.default is not probatio.UNDEFINED
     }
 
 

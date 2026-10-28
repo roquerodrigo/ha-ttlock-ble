@@ -607,8 +607,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         model.
         """
         device_registry = async_get_device_registry(self.hass)
-        device = device_registry.async_get_device(
-            identifiers={(DOMAIN, format_mac(mac))},
+        device = device_registry.async_get_device_by_identifier(
+            (DOMAIN, format_mac(mac)), self.config_entry.entry_id
         )
         if device is None:
             return

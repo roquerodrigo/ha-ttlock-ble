@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigFlowResult, OptionsFlow
 from homeassistant.helpers import selector
 
@@ -32,9 +32,9 @@ class TtlockBleOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_PERMANENT_CONNECTION,
                         default=current_permanent_connection,
                     ): selector.BooleanSelector(),

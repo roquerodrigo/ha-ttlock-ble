@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
@@ -60,19 +60,19 @@ def _credentials_schema(
     *,
     ask_cloud_app: bool = False,
     default_cloud_app: str = DEFAULT_CLOUD_APP,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build the credentials schema, optionally pre-filled and with the app picker."""
-    schema = vol.Schema(
+    schema = probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_USERNAME,
                 default=default_username
                 if default_username is not None
-                else vol.UNDEFINED,
+                else probatio.UNDEFINED,
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
             ),
-            vol.Required(CONF_PASSWORD): selector.TextSelector(
+            probatio.Required(CONF_PASSWORD): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
             ),
         },
@@ -81,7 +81,7 @@ def _credentials_schema(
         return schema
     return schema.extend(
         {
-            vol.Required(CONF_CLOUD_APP, default=default_cloud_app): (
+            probatio.Required(CONF_CLOUD_APP, default=default_cloud_app): (
                 selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=list(CLOUD_APPS),
@@ -109,62 +109,64 @@ def _account_unique_id(username: str, cloud_app: str) -> str:
 
 def _manual_key_schema(
     defaults: TtlockBleManualKeyInput | None = None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build the manual key schema, pre-filled when correcting a rejected form."""
     previous = cast("Mapping[str, str | int]", defaults or {})
 
     def _default(field: str, fallback: str | int) -> str | int:
         return previous.get(field, fallback)
 
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required("lock_mac", default=_default("lock_mac", "")): (
+            probatio.Required("lock_mac", default=_default("lock_mac", "")): (
                 selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 )
             ),
-            vol.Required("aes_key", default=_default("aes_key", "")): (
+            probatio.Required("aes_key", default=_default("aes_key", "")): (
                 selector.TextSelector(
                     selector.TextSelectorConfig(
                         type=selector.TextSelectorType.PASSWORD,
                     ),
                 )
             ),
-            vol.Required("unlock_key", default=_default("unlock_key", "")): (
+            probatio.Required("unlock_key", default=_default("unlock_key", "")): (
                 selector.TextSelector(
                     selector.TextSelectorConfig(
                         type=selector.TextSelectorType.PASSWORD,
                     ),
                 )
             ),
-            vol.Optional("admin_passcode", default=_default("admin_passcode", "")): (
+            probatio.Optional(
+                "admin_passcode", default=_default("admin_passcode", "")
+            ): (
                 selector.TextSelector(
                     selector.TextSelectorConfig(
                         type=selector.TextSelectorType.PASSWORD,
                     ),
                 )
             ),
-            vol.Optional("lock_name", default=_default("lock_name", "")): (
+            probatio.Optional("lock_name", default=_default("lock_name", "")): (
                 selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 )
             ),
-            vol.Required(
+            probatio.Required(
                 "protocol_type",
                 default=_default("protocol_type", DEFAULT_PROTOCOL_TYPE),
             ): _positive_int_selector(),
-            vol.Required(
+            probatio.Required(
                 "protocol_version",
                 default=_default("protocol_version", DEFAULT_PROTOCOL_VERSION),
             ): _positive_int_selector(),
-            vol.Required("scene", default=_default("scene", DEFAULT_SCENE)): (
+            probatio.Required("scene", default=_default("scene", DEFAULT_SCENE)): (
                 _positive_int_selector()
             ),
-            vol.Required(
+            probatio.Required(
                 "group_id",
                 default=_default("group_id", DEFAULT_GROUP_ID),
             ): _positive_int_selector(),
-            vol.Required("org_id", default=_default("org_id", DEFAULT_ORG_ID)): (
+            probatio.Required("org_id", default=_default("org_id", DEFAULT_ORG_ID)): (
                 _positive_int_selector()
             ),
         },
@@ -183,11 +185,11 @@ def _positive_int_selector() -> selector.NumberSelector:
     )
 
 
-def _verification_schema() -> vol.Schema:
+def _verification_schema() -> probatio.Schema:
     """Build the verification-code schema for the second step."""
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_VERIFICATION_CODE): selector.TextSelector(
+            probatio.Required(CONF_VERIFICATION_CODE): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
             ),
         },

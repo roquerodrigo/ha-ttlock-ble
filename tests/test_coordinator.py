@@ -579,10 +579,13 @@ async def test_the_hardware_strings_reach_the_registry_device(
     conn = _mock_connection()
     conn.async_get_device_info = AsyncMock(return_value=_device_info())
     coordinator = _coordinator(hass, {MAC: conn})
+    coordinator.config_entry = entry
 
     await coordinator._async_update_data()
 
-    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, MAC.lower()), entry.entry_id
+    )
     assert device is not None
     assert device.model == "SN534-4P-T78-BELL"
     assert device.hw_version == "1.7"
@@ -610,10 +613,13 @@ async def test_a_field_the_lock_leaves_out_keeps_what_the_device_had(
     conn = _mock_connection()
     conn.async_get_device_info = AsyncMock(return_value=_device_info(model=None))
     coordinator = _coordinator(hass, {MAC: conn})
+    coordinator.config_entry = entry
 
     await coordinator._async_update_data()
 
-    device = registry.async_get_device(identifiers={(DOMAIN, MAC.lower())})
+    device = registry.async_get_device_by_identifier(
+        (DOMAIN, MAC.lower()), entry.entry_id
+    )
     assert device is not None
     assert device.model == "Protocol 5.3"
     assert device.sw_version == "6.5.20.24121101"

@@ -76,10 +76,7 @@ def _async_prune_stale_devices(
                 "Removing device %s: its lock is no longer in the entry's keys",
                 device.name or device.id,
             )
-            device_registry.async_update_device(
-                device.id,
-                remove_config_entry_id=entry.entry_id,
-            )
+            device_registry.async_remove_device(device.id)
 
 
 async def async_remove_config_entry_device(
