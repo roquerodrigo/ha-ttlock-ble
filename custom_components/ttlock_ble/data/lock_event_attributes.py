@@ -13,6 +13,7 @@ class TtlockBleLogEventAttributes(TypedDict):
     for record types where it identifies something (a card number, a
     fingerprint id, an accessory MAC). Record types where it is a
     working door code never populate it — see `PASSCODE_RECORD_TYPES`.
+    `credential_name` names whose credential it was, when that is known.
     """
 
     record_type: str
@@ -20,5 +21,6 @@ class TtlockBleLogEventAttributes(TypedDict):
     timestamp: NotRequired[str]
     uid: NotRequired[int]
     credential: NotRequired[str]
+    credential_name: NotRequired[str]
     key_id: NotRequired[int]
     accessory_battery: NotRequired[int]

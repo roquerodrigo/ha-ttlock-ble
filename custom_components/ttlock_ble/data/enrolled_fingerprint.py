@@ -22,6 +22,14 @@ class TtlockBleEnrolledFingerprint:
         return cls(fingerprint_id=entry.fingerprint_id, slot=entry.slot)
 
     @classmethod
+    def from_number(cls, number: int) -> Self | None:
+        """Rebuild the identity from the number the app and the log show."""
+        if not 0 <= number < 1 << 48:
+            return None
+        raw = number.to_bytes(6)
+        return cls(fingerprint_id=raw[:4], slot=int.from_bytes(raw[4:]))
+
+    @classmethod
     def from_token(cls, token: str) -> Self | None:
         """Rebuild the identity from `token`, or `None` when it is not one."""
         fingerprint_hex, separator, slot = token.partition("_")

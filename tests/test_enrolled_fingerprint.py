@@ -35,3 +35,14 @@ def test_the_token_round_trips() -> None:
 @pytest.mark.parametrize("token", ["0000002a", "0000002a_", "0000002a_x", "zz_1"])
 def test_a_token_that_is_no_fingerprint_is_rejected(token: str) -> None:
     assert TtlockBleEnrolledFingerprint.from_token(token) is None
+
+
+def test_the_number_round_trips() -> None:
+    fingerprint = TtlockBleEnrolledFingerprint(bytes.fromhex("2f12dd67"), 3)
+
+    assert TtlockBleEnrolledFingerprint.from_number(fingerprint.number) == fingerprint
+
+
+@pytest.mark.parametrize("number", [-1, 1 << 48])
+def test_a_number_out_of_range_is_rejected(number: int) -> None:
+    assert TtlockBleEnrolledFingerprint.from_number(number) is None

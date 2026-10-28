@@ -214,3 +214,111 @@ def test_a_passcode_carrying_record_never_leaks_its_code() -> None:
     assert LogOperate.ADMIN_CODE_UNLOCK in PASSCODE_RECORD_TYPES
     assert LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK in PASSCODE_RECORD_TYPES
     assert LogOperate.ADMIN_CODE_UNLOCK in UNLOCK_RECORD_TYPES
+
+
+def _fingerprint_entry(id_byte: int, slot: int):
+    from ttlock_ble import FingerprintEntry
+
+    return FingerprintEntry(
+        fingerprint_id=bytes([0x00, 0x00, 0x00, id_byte]),
+        slot=slot,
+        start_date=None,
+        end_date=None,
+    )
+
+
+async def _enroll(hass, entry, fingerprints) -> None:
+    coordinator = entry.runtime_data.coordinator
+    coordinator._fingerprints[entry.runtime_data.virtual_keys[0].lockMac] = fingerprints
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+
+async def _fire(hass, mac, **fields) -> dict:
+    record = LogEntry(record_number=1, operate_date=None, lock_battery=80, **fields)
+    async_dispatcher_send(hass, log_signal(mac), record)
+    await hass.async_block_till_done()
+    return _log_state(hass).attributes
+
+
+async def test_a_fingerprint_record_is_named_after_its_device(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
+
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    assert attributes["credential"] == "2752513"
+    assert attributes["credential_name"] == "2752513"
+
+
+async def test_a_renamed_fingerprint_names_the_record(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers.device_registry import format_mac
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
+    registry = dr.async_get(hass)
+    device = registry.async_get_child_device_by_identifier(
+        (DOMAIN, f"{format_mac(sample_virtual_key.lockMac)}_fingerprint_0000002a_1"),
+        setup_integration.entry_id,
+    )
+    assert device is not None
+    registry.async_update_child_device(device.id, name_by_user="Thumb")
+
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    assert attributes["credential_name"] == "Thumb"
+
+
+@pytest.mark.parametrize("password", ["2818050", "not-a-number", str(1 << 48), None])
+async def test_a_fingerprint_record_without_a_device_has_no_name(
+    hass, setup_integration, sample_virtual_key, password
+) -> None:
+    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
+
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.FR_UNLOCK_SUCCEED,
+        password=password,
+    )
+
+    assert "credential_name" not in attributes
+
+
+async def test_a_command_from_home_assistant_is_named_so(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    attributes = await _fire(
+        hass, sample_virtual_key.lockMac, record_type=LogOperate.MOBILE_UNLOCK, uid=0
+    )
+
+    assert attributes["credential_name"] == "Home Assistant"
+
+
+@pytest.mark.parametrize(
+    ("record_type", "uid"),
+    [(LogOperate.MOBILE_UNLOCK, 1234), (LogOperate.GATEWAY_UNLOCK, 0)],
+)
+async def test_another_app_or_the_gateway_is_not_named(
+    hass, setup_integration, sample_virtual_key, record_type, uid
+) -> None:
+    attributes = await _fire(
+        hass, sample_virtual_key.lockMac, record_type=record_type, uid=uid
+    )
+
+    assert "credential_name" not in attributes
