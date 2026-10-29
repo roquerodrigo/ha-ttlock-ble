@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Self
 
 from ..credential_type import TtlockBleCredentialType
@@ -13,6 +14,10 @@ if TYPE_CHECKING:
     from ttlock_ble import CardEntry, FingerprintEntry
 
 PASSCODE_MASK = "•••"
+
+# Enough to make a stored key costly to reverse one code at a time, little
+# enough to derive on the event loop; each code is derived once per run.
+PASSCODE_KEY_ITERATIONS = 10_000
 
 # The first digit and the last two are shown, so a shorter code would have
 # nothing left to hide.
@@ -63,15 +68,22 @@ class TtlockBleKnownCredential:
         )
 
 
+@lru_cache(maxsize=256)
 def passcode_key(mac: str, passcode: str) -> str:
     """
     Return the key a passcode is stored under on the lock `mac`.
 
-    A digest keeps the code out of the store in clear. It is no barrier
-    to whoever holds the file, since a keypad code is short enough to
-    try every value, but that file sits next to the lock's own keys.
+    A key derivation keeps the code out of the store in clear, salted
+    with the lock's MAC. It only slows down whoever holds the file, since
+    a keypad code is short enough to try every value, but that file sits
+    next to the lock's own keys.
     """
-    return hashlib.sha256(f"{mac.upper()}:{passcode}".encode()).hexdigest()[:16]
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        passcode.encode(),
+        mac.upper().encode(),
+        PASSCODE_KEY_ITERATIONS,
+    ).hex()[:32]
 
 
 def _masked(passcode: str) -> str:
