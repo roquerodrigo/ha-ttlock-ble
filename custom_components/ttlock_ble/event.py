@@ -18,8 +18,8 @@ from ttlock_ble import LogOperate
 
 from .connection import log_signal
 from .credential_resolver import TtlockBleCredentialResolver
+from .credential_store import async_get_credential_store
 from .entity import TtlockBleEntity
-from .fingerprint_store import async_get_fingerprint_store
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -47,7 +47,7 @@ async def async_setup_entry(
 ) -> None:
     """Create log-event entities per `VirtualKey`."""
     data = entry.runtime_data
-    resolver = TtlockBleCredentialResolver(await async_get_fingerprint_store(hass))
+    resolver = TtlockBleCredentialResolver(await async_get_credential_store(hass))
     async_add_entities(
         TtlockBleLogEvent(data.coordinator, key, resolver) for key in data.virtual_keys
     )

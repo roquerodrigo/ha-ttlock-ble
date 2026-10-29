@@ -69,7 +69,8 @@ async def test_log_event_fires_on_new_record(
     assert state.attributes["battery"] == 85
     assert state.attributes["uid"] == 1234
     # The keypad code itself must never reach the recorder / the API.
-    assert "credential" not in state.attributes
+    assert state.attributes["credential"] == "1•••56"
+    assert "123456" not in str(state.as_dict())
 
 
 async def test_log_event_publishes_non_secret_credentials(
@@ -110,8 +111,7 @@ async def test_log_event_redacts_every_passcode_record_type(
         )
         async_dispatcher_send(hass, log_signal(sample_virtual_key.lockMac), entry)
         await hass.async_block_till_done()
-        attributes = _log_state(hass).attributes
-        assert "credential" not in attributes, record_type
+        assert "998877" not in str(_log_state(hass).as_dict()), record_type
 
 
 async def test_log_event_includes_key_id_and_accessory_battery(
@@ -219,15 +219,27 @@ def test_a_passcode_carrying_record_never_leaks_its_code() -> None:
 
 
 async def _name_fingerprint(hass, mac, number: int, name: str) -> None:
-    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
-    from custom_components.ttlock_ble.fingerprint_store import (
-        async_get_fingerprint_store,
+    from custom_components.ttlock_ble.credential_store import (
+        async_get_credential_store,
+    )
+    from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+    from custom_components.ttlock_ble.data import (
+        TtlockBleEnrolledFingerprint,
+        TtlockBleKnownCredential,
     )
 
-    fingerprint = TtlockBleEnrolledFingerprint.from_number(number)
-    store = await async_get_fingerprint_store(hass)
-    store.async_replace(mac, {fingerprint})
-    store.async_set_name(mac, fingerprint, name)
+    token = TtlockBleEnrolledFingerprint.from_number(number).token
+    store = await async_get_credential_store(hass)
+    store.async_replace(
+        mac,
+        TtlockBleCredentialType.FINGERPRINT,
+        [
+            TtlockBleKnownCredential(
+                TtlockBleCredentialType.FINGERPRINT, token, str(number)
+            )
+        ],
+    )
+    store.async_set_name(mac, TtlockBleCredentialType.FINGERPRINT, token, name)
 
 
 async def _fire(hass, mac, **fields) -> dict:
@@ -317,7 +329,7 @@ async def test_a_card_record_carries_its_type_and_number(
     assert "credential_name" not in attributes
 
 
-async def test_a_passcode_record_carries_its_type_but_never_the_code(
+async def test_a_passcode_record_carries_its_label_but_never_the_code(
     hass, setup_integration, sample_virtual_key
 ) -> None:
     attributes = await _fire(
@@ -328,8 +340,67 @@ async def test_a_passcode_record_carries_its_type_but_never_the_code(
     )
 
     assert attributes["credential_type"] == "passcode"
-    assert "credential" not in attributes
+    assert attributes["credential"] == "9•••77"
     assert "credential_name" not in attributes
+    assert "998877" not in str(attributes)
+
+
+async def test_a_named_passcode_names_the_record(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from custom_components.ttlock_ble.credential_store import (
+        async_get_credential_store,
+    )
+    from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+    from custom_components.ttlock_ble.data import TtlockBleKnownCredential
+
+    mac = sample_virtual_key.lockMac
+    passcode = TtlockBleKnownCredential.from_passcode(mac, "998877")
+    store = await async_get_credential_store(hass)
+    store.async_add(mac, passcode)
+    store.async_set_name(mac, TtlockBleCredentialType.PASSCODE, passcode.key, "Bob")
+
+    attributes = await _fire(
+        hass, mac, record_type=LogOperate.KEYBOARD_PASSWORD_UNLOCK, password="998877"
+    )
+
+    assert attributes["credential_name"] == "Bob"
+
+
+async def test_a_refused_passcode_shows_nothing_of_the_code(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.ERROR_PASSWORD_UNLOCK,
+        password="998877",
+    )
+
+    assert attributes["credential_type"] == "passcode"
+    assert "credential" not in attributes
+
+
+async def test_a_card_record_is_named_after_its_card(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from custom_components.ttlock_ble.credential_store import (
+        async_get_credential_store,
+    )
+    from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+    from custom_components.ttlock_ble.data import TtlockBleKnownCredential
+
+    mac = sample_virtual_key.lockMac
+    card = TtlockBleCredentialType.CARD
+    store = await async_get_credential_store(hass)
+    store.async_replace(mac, card, [TtlockBleKnownCredential(card, "42", "42")])
+    store.async_set_name(mac, card, "42", "Carol")
+
+    attributes = await _fire(
+        hass, mac, record_type=LogOperate.IC_UNLOCK_SUCCEED, password="42"
+    )
+
+    assert attributes["credential_name"] == "Carol"
 
 
 async def test_a_record_with_no_credential_has_no_type(

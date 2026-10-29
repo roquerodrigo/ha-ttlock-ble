@@ -131,8 +131,8 @@
       }
     },
     "button": {
-      "refresh_fingerprints": {
-        "name": "Atualizar digitais"
+      "refresh_credentials": {
+        "name": "Atualizar credenciais"
       }
     },
     "event": {
@@ -160,6 +160,9 @@
       "battery": {
         "name": "Bateria"
       },
+      "card_count": {
+        "name": "Cartões cadastrados"
+      },
       "clock_drift": {
         "name": "Desvio do relógio"
       },
@@ -179,14 +182,20 @@
       }
     },
     "text": {
+      "card_name": {
+        "name": "Cartão {label}"
+      },
       "fingerprint_name": {
-        "name": "Digital {number}"
+        "name": "Digital {label}"
+      },
+      "passcode_name": {
+        "name": "Senha {label}"
       }
     }
   },
   "exceptions": {
-    "fingerprints_not_read": {
-      "message": "Não foi possível ler as digitais de {lock}. Verifique se a fechadura está ao alcance e tente novamente."
+    "credentials_not_read": {
+      "message": "Não foi possível ler as credenciais de {lock}. Verifique se a fechadura está ao alcance e tente novamente."
     }
   },
   "selector": {

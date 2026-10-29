@@ -29,11 +29,12 @@ from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from ttlock_ble import LockState
+from ttlock_ble import LockFeature, LockState
 
 from .const import DOMAIN, LOGGER
-from .data import TtlockBleEnrolledFingerprint
-from .key_privileges import can_administer
+from .credential_type import TtlockBleCredentialType
+from .data import TtlockBleKnownCredential
+from .key_privileges import can_administer, may_hold
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
     from .clock_sync_store import TtlockBleClockSyncStore
     from .connection import TtlockBleConnection
+    from .credential_store import TtlockBleCredentialStore
     from .data import (
         TtlockBleClockSync,
         TtlockBleConfigEntry,
@@ -52,7 +54,6 @@ if TYPE_CHECKING:
         TtlockBleLockState,
     )
     from .device_description_store import TtlockBleDeviceDescriptionStore
-    from .fingerprint_store import TtlockBleFingerprintStore
 
 
 LOCK_STATE_LOCKED = 0
@@ -87,9 +88,9 @@ CLOCK_DRIFT_THRESHOLD_SECONDS = 30.0
 # admin handshake plus its own round trip, and the setting rarely moves.
 SOUND_CHECK_INTERVAL_SECONDS = 60 * 60
 
-# How long between reads of the enrolled fingerprint list. Each read walks
-# the whole list, one round trip per fingerprint, behind the admin handshake.
-FINGERPRINT_CHECK_INTERVAL_SECONDS = 30 * 60
+# How long between reads of the credential lists. Each read walks a whole
+# list, one round trip per credential, behind the admin handshake.
+CREDENTIAL_CHECK_INTERVAL_SECONDS = 30 * 60
 
 # Above this, a correction is worth a line in the log at INFO. A lock
 # does not drift by minutes on its own - a gap that size usually means
@@ -108,7 +109,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         connections: dict[str, TtlockBleConnection],
         descriptions: TtlockBleDeviceDescriptionStore,
         clock_syncs: TtlockBleClockSyncStore,
-        fingerprints: TtlockBleFingerprintStore,
+        credentials: TtlockBleCredentialStore,
     ) -> None:
         """
         Pin the per-MAC connection map. No polling interval on purpose.
@@ -124,11 +125,11 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._connections = connections
         self._descriptions = descriptions
         self._clock_syncs = clock_syncs
-        self._fingerprints = fingerprints
+        self._credentials = credentials
         self._described: set[str] = set()
         self._sound_enabled: dict[str, bool] = {}
         self._sound_checked_at: dict[str, float] = {}
-        self._fingerprints_checked_at: dict[str, float] = {}
+        self._credentials_checked_at: dict[str, float] = {}
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
         self._log_retries: dict[str, CALLBACK_TYPE] = {}
@@ -176,9 +177,11 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         return self._sound_enabled.get(mac)
 
     @callback
-    def async_fingerprints(self, mac: str) -> list[TtlockBleEnrolledFingerprint] | None:
-        """Return the fingerprints `mac` last listed, if a list was ever read."""
-        return self._fingerprints.enrolled(mac)
+    def async_credentials(
+        self, mac: str, credential_type: TtlockBleCredentialType
+    ) -> list[TtlockBleKnownCredential] | None:
+        """Return the credentials of a type `mac` is known to hold, if any is."""
+        return self._credentials.known(mac, credential_type)
 
     @callback
     def async_note_sound_enabled(self, mac: str, *, enabled: bool) -> None:
@@ -412,7 +415,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             # as if the log itself had failed.
             await self._async_align_clock(connection)
             await self._async_read_sound(connection)
-            await self._async_read_fingerprints(connection)
+            await self._async_read_credentials(connection)
         finally:
             self._log_fetches.discard(mac)
             if self._records_pending.get(mac, False):
@@ -460,7 +463,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         await self._async_describe(connection)
         await self._async_align_clock(connection)
         await self._async_read_sound(connection)
-        await self._async_read_fingerprints(connection)
+        await self._async_read_credentials(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
@@ -595,43 +598,94 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             return True
         return self.hass.loop.time() - checked_at >= SOUND_CHECK_INTERVAL_SECONDS
 
-    async def _async_read_fingerprints(
+    async def _async_read_credentials(
         self, connection: TtlockBleConnection, *, force: bool = False
     ) -> bool:
         """
-        Read the enrolled fingerprint list. Reports whether a list was read.
+        Read the lists of fingerprints, cards and passcodes the lock supports.
 
-        The firmware lists them only to an admin key, so a key without
-        the admin password is never asked; `force` skips the pacing
-        only. A read that did not land leaves the pacing untouched, so
-        the next session tries again.
+        Reports whether every list asked for was read. The firmware lists
+        them only to an admin key, so a key without the admin password is
+        never asked; `force` skips the pacing only. Each list is adopted
+        on its own, and the pacing moves once any of them landed, so a
+        list the lock refuses is not asked again on every session.
         """
-        mac = connection.key.lockMac
-        if not can_administer(connection.key):
+        key = connection.key
+        mac = key.lockMac
+        if not can_administer(key):
             return False
-        if not force and not self._async_fingerprints_check_due(mac):
+        if not force and not self._async_credentials_check_due(mac):
             return False
+        results: list[bool] = []
+        if may_hold(key, LockFeature.FINGER_PRINT):
+            results.append(await self._async_read_fingerprints(connection))
+        if may_hold(key, LockFeature.IC):
+            results.append(await self._async_read_cards(connection))
+        if may_hold(key, LockFeature.PASSCODE):
+            results.append(await self._async_read_passcodes(connection))
+        if any(results):
+            self._credentials_checked_at[mac] = self.hass.loop.time()
+            self.async_update_listeners()
+        return bool(results) and all(results)
+
+    async def _async_read_fingerprints(self, connection: TtlockBleConnection) -> bool:
         fingerprints = await connection.async_get_fingerprints()
         if fingerprints is None:
             return False
-        self._fingerprints_checked_at[mac] = self.hass.loop.time()
+        mac = connection.key.lockMac
         LOGGER.debug("Fingerprints of %s: %d enrolled", mac, len(fingerprints))
-        self._fingerprints.async_replace(
-            mac, {TtlockBleEnrolledFingerprint.from_entry(e) for e in fingerprints}
+        self._credentials.async_replace(
+            mac,
+            TtlockBleCredentialType.FINGERPRINT,
+            [TtlockBleKnownCredential.from_fingerprint(e) for e in fingerprints],
         )
-        self.async_update_listeners()
         return True
 
-    def _async_fingerprints_check_due(self, mac: str) -> bool:
-        """Report whether `mac` is due for a fingerprint-list read."""
-        checked_at = self._fingerprints_checked_at.get(mac)
+    async def _async_read_cards(self, connection: TtlockBleConnection) -> bool:
+        cards = await connection.async_get_cards()
+        if cards is None:
+            return False
+        mac = connection.key.lockMac
+        LOGGER.debug("Cards of %s: %d enrolled", mac, len(cards))
+        self._credentials.async_replace(
+            mac,
+            TtlockBleCredentialType.CARD,
+            [TtlockBleKnownCredential.from_card(e) for e in cards],
+        )
+        return True
+
+    async def _async_read_passcodes(self, connection: TtlockBleConnection) -> bool:
+        """
+        Add the passcodes the lock lists to those already known.
+
+        The list is not complete: a passcode the official app generated
+        offline only shows up once it has been used at the keypad. So a
+        passcode missing from it is not gone, and only the log records
+        of a deletion or an expiry remove one.
+        """
+        passcodes = await connection.async_get_passcodes()
+        if passcodes is None:
+            return False
+        mac = connection.key.lockMac
+        LOGGER.debug("Passcodes of %s: %d listed", mac, len(passcodes))
+        for entry in passcodes:
+            self._credentials.async_add(
+                mac, TtlockBleKnownCredential.from_passcode(mac, entry.passcode)
+            )
+        if self._credentials.known(mac, TtlockBleCredentialType.PASSCODE) is None:
+            self._credentials.async_replace(mac, TtlockBleCredentialType.PASSCODE, [])
+        return True
+
+    def _async_credentials_check_due(self, mac: str) -> bool:
+        """Report whether `mac` is due for a credential-list read."""
+        checked_at = self._credentials_checked_at.get(mac)
         if checked_at is None:
             return True
-        return self.hass.loop.time() - checked_at >= FINGERPRINT_CHECK_INTERVAL_SECONDS
+        return self.hass.loop.time() - checked_at >= CREDENTIAL_CHECK_INTERVAL_SECONDS
 
-    async def async_refresh_fingerprints(self, mac: str) -> bool:
-        """Read the fingerprint list of `mac` now, connecting if needed."""
-        return await self._async_read_fingerprints(self._connections[mac], force=True)
+    async def async_refresh_credentials(self, mac: str) -> bool:
+        """Read the credential lists of `mac` now, connecting if needed."""
+        return await self._async_read_credentials(self._connections[mac], force=True)
 
     def _async_clock_check_due(self, mac: str) -> bool:
         """Report whether `mac` is due for a clock comparison."""

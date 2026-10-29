@@ -894,10 +894,10 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
 
     from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.credential_store import TtlockBleCredentialStore
     from custom_components.ttlock_ble.device_description_store import (
         TtlockBleDeviceDescriptionStore,
     )
-    from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
     from custom_components.ttlock_ble.lock import TtlockBleLock
 
     coordinator = TtlockBleDataUpdateCoordinator(
@@ -905,7 +905,7 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
         {},
         TtlockBleDeviceDescriptionStore(hass),
         TtlockBleClockSyncStore(hass),
-        TtlockBleFingerprintStore(hass),
+        TtlockBleCredentialStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleLock(coordinator, sample_virtual_key, MagicMock())

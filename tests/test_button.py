@@ -6,7 +6,8 @@ import pytest
 from homeassistant.exceptions import HomeAssistantError
 from ttlock_ble import FingerprintEntry
 
-from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+from custom_components.ttlock_ble.data import TtlockBleKnownCredential
 
 
 def _button_state(hass):
@@ -49,7 +50,7 @@ async def test_refresh_button_has_unique_id(
 
     entry = er.async_get(hass).async_get(_button_state(hass).entity_id)
     assert entry is not None
-    assert entry.unique_id == f"{sample_virtual_key.lockMac}_refresh_fingerprints"
+    assert entry.unique_id == f"{sample_virtual_key.lockMac}_refresh_credentials"
 
 
 async def test_refresh_button_is_config_category(hass, setup_integration) -> None:
@@ -88,7 +89,7 @@ async def test_refresh_button_press_forces_a_read_bypassing_the_pacing(
     """Pressing must land even immediately after a read, when the interval says wait."""
     coordinator = setup_integration.runtime_data.coordinator
     mac = sample_virtual_key.lockMac
-    coordinator._fingerprints_checked_at[mac] = coordinator.hass.loop.time()
+    coordinator._credentials_checked_at[mac] = coordinator.hass.loop.time()
     entries = [
         FingerprintEntry(
             fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
@@ -98,6 +99,8 @@ async def test_refresh_button_press_forces_a_read_bypassing_the_pacing(
         )
     ]
     mock_ttlock_connection.async_get_fingerprints = AsyncMock(return_value=entries)
+    mock_ttlock_connection.async_get_cards = AsyncMock(return_value=[])
+    mock_ttlock_connection.async_get_passcodes = AsyncMock(return_value=[])
 
     await hass.services.async_call(
         "button",
@@ -108,8 +111,8 @@ async def test_refresh_button_press_forces_a_read_bypassing_the_pacing(
     await hass.async_block_till_done()
 
     mock_ttlock_connection.async_get_fingerprints.assert_awaited_once()
-    assert coordinator.async_fingerprints(mac) == [
-        TtlockBleEnrolledFingerprint.from_entry(entry) for entry in entries
+    assert coordinator.async_credentials(mac, TtlockBleCredentialType.FINGERPRINT) == [
+        TtlockBleKnownCredential.from_fingerprint(entry) for entry in entries
     ]
 
 
@@ -149,7 +152,7 @@ async def test_refresh_button_press_fails_when_the_lock_is_not_reached(
             blocking=True,
         )
 
-    assert error.value.translation_key == "fingerprints_not_read"
+    assert error.value.translation_key == "credentials_not_read"
     assert error.value.translation_placeholders == {
         "lock": sample_virtual_key.lockAlias
     }

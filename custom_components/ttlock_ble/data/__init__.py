@@ -19,6 +19,7 @@ from .diagnostics_entry import TtlockBleDiagnosticsEntry
 from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
 from .diagnostics_payload import TtlockBleDiagnosticsPayload
 from .enrolled_fingerprint import TtlockBleEnrolledFingerprint
+from .known_credential import TtlockBleKnownCredential
 from .last_unlock_attributes import TtlockBleLastUnlockAttributes
 from .lock_event_attributes import TtlockBleLogEventAttributes
 from .lock_state import TtlockBleLockState
@@ -27,6 +28,7 @@ from .log_cursor import TtlockBleLogCursor
 from .manual_key_input import TtlockBleManualKeyInput
 from .options_data import TtlockBleOptionsData
 from .runtime import TtlockBleData
+from .stored_credential import TtlockBleStoredCredential
 from .stored_key import TtlockBleStoredKey
 from .stored_lock_version import TtlockBleStoredLockVersion
 from .verification_input import TtlockBleVerificationInput
@@ -52,6 +54,7 @@ __all__ = [
     "TtlockBleDiagnosticsLockSummary",
     "TtlockBleDiagnosticsPayload",
     "TtlockBleEnrolledFingerprint",
+    "TtlockBleKnownCredential",
     "TtlockBleLastUnlockAttributes",
     "TtlockBleLockState",
     "TtlockBleLogCredential",
@@ -59,6 +62,7 @@ __all__ = [
     "TtlockBleLogEventAttributes",
     "TtlockBleManualKeyInput",
     "TtlockBleOptionsData",
+    "TtlockBleStoredCredential",
     "TtlockBleStoredKey",
     "TtlockBleStoredLockVersion",
     "TtlockBleVerificationInput",

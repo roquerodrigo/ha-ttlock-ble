@@ -22,9 +22,10 @@ from .clock_sync_store import async_get_clock_sync_store
 from .connection import TtlockBleConnection
 from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
+from .credential_store import async_get_credential_store
 from .data import TtlockBleData, TtlockBleLogCursor
 from .device_description_store import async_get_device_description_store
-from .fingerprint_store import async_get_fingerprint_store
+from .passcode_ledger import TtlockBlePasscodeLedger
 from .record_store import async_get_record_store
 
 if TYPE_CHECKING:
@@ -125,18 +126,22 @@ async def async_setup_entry(
 
     description_store = await async_get_device_description_store(hass)
     clock_sync_store = await async_get_clock_sync_store(hass)
-    fingerprint_store = await async_get_fingerprint_store(hass)
+    credential_store = await async_get_credential_store(hass)
     coordinator = TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,
         descriptions=description_store,
         clock_syncs=clock_sync_store,
-        fingerprints=fingerprint_store,
+        credentials=credential_store,
     )
 
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
         virtual_keys,
     )
+    for unsubscribe in TtlockBlePasscodeLedger(
+        hass, credential_store, coordinator
+    ).async_track(virtual_keys):
+        entry.async_on_unload(unsubscribe)
 
     async def _stop_connections() -> None:
         for connection in connections.values():

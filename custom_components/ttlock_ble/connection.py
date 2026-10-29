@@ -33,12 +33,14 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from ttlock_ble import (
+        CardEntry,
         DeviceInfo,
         FingerprintEntry,
         LockEvent,
         LockSound,
         LockState,
         LogEntry,
+        PasscodeEntry,
         VirtualKey,
     )
 
@@ -265,6 +267,50 @@ class TtlockBleConnection:
             except Exception as exc:  # noqa: BLE001
                 LOGGER.debug(
                     "get_fingerprints failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return None
+
+    async def async_get_cards(self) -> list[CardEntry] | None:
+        """
+        Read the enrolled card list through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        Admin-gated by the firmware, so a key carrying no admin password
+        can only ever fail here; callers check that before asking.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_cards()
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug(
+                    "get_cards failed for %s: %s",
+                    self._key.lockMac,
+                    exc,
+                )
+                return None
+
+    async def async_get_passcodes(self) -> list[PasscodeEntry] | None:
+        """
+        Read the passcodes the lock lists through the connection.
+
+        Returns `None` when the lock is out of range or the read failed.
+        Admin-gated by the firmware, so a key carrying no admin password
+        can only ever fail here; callers check that before asking.
+        """
+        async with self._lock:
+            client = await self._async_ensure_connected_locked()
+            if client is None:
+                return None
+            try:
+                return await client.get_passcodes()
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug(
+                    "get_passcodes failed for %s: %s",
                     self._key.lockMac,
                     exc,
                 )

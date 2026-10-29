@@ -131,8 +131,8 @@
       }
     },
     "button": {
-      "refresh_fingerprints": {
-        "name": "רענון טביעות אצבע"
+      "refresh_credentials": {
+        "name": "רענון אמצעי גישה"
       }
     },
     "event": {
@@ -160,6 +160,9 @@
       "battery": {
         "name": "סוללה"
       },
+      "card_count": {
+        "name": "כרטיסים רשומים"
+      },
       "clock_drift": {
         "name": "סטיית שעון"
       },
@@ -179,14 +182,20 @@
       }
     },
     "text": {
+      "card_name": {
+        "name": "כרטיס {label}"
+      },
       "fingerprint_name": {
-        "name": "טביעת אצבע {number}"
+        "name": "טביעת אצבע {label}"
+      },
+      "passcode_name": {
+        "name": "קוד {label}"
       }
     }
   },
   "exceptions": {
-    "fingerprints_not_read": {
-      "message": "לא ניתן לקרוא את טביעות האצבע של {lock}. ודאו שהמנעול בטווח ונסו שוב."
+    "credentials_not_read": {
+      "message": "לא ניתן לקרוא את אמצעי הגישה של {lock}. ודאו שהמנעול בטווח ונסו שוב."
     }
   },
   "selector": {
