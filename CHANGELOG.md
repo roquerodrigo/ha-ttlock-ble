@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.12.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.11.0...v3.12.0) (2026-10-29)
+
+
+### Features
+
+* **event:** name the credential behind each log record ([5ebbed1](https://github.com/roquerodrigo/ha-ttlock-ble/commit/5ebbed1cfe125206761b11c4b27e3893715a74de))
+* **event:** name the passcode a deletion or change refers to ([dd836ed](https://github.com/roquerodrigo/ha-ttlock-ble/commit/dd836ed890886c55a59d738586fe9490393c81af))
+* name the cards and passcodes behind each unlock ([ff9c1b0](https://github.com/roquerodrigo/ha-ttlock-ble/commit/ff9c1b0c22ea1b1457f6163ee0a47eee5d3515f3))
+* name who unlocked the lock ([78dad3a](https://github.com/roquerodrigo/ha-ttlock-ble/commit/78dad3af8f817a09e08eb0c0d160d0fe8dcbee1f))
+* **sensor:** give every enrolled fingerprint its own device ([a1da2dc](https://github.com/roquerodrigo/ha-ttlock-ble/commit/a1da2dced2dfceae76a0ab583fc6f0991148da0c))
+
+
+### Bug Fixes
+
+* **text:** derive passcode keys with PBKDF2 ([46725b4](https://github.com/roquerodrigo/ha-ttlock-ble/commit/46725b4d2da92017041d3e734357960f8313977c))
+
 ## [3.11.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.10.0...v3.11.0) (2026-10-27)
 
 
