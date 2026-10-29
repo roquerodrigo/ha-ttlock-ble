@@ -77,9 +77,9 @@ async def test_entity_translation_keys_and_authored_names_agree(
     either — a key missing from both sides matches, and the entity falls
     back to its device-class name while the authored one never shows.
 
-    The fingerprint-name text is created dynamically and does not exist
-    under a bare setup with nothing read yet, so one fingerprint is
-    pushed through the coordinator first - otherwise its authored key
+    The credential-name texts are created dynamically and do not exist
+    under a bare setup with nothing read yet, so one credential of each
+    kind is pushed through the coordinator first - otherwise its authored key
     would look unused by every check that runs before any lock is polled.
     """
     from homeassistant.helpers import entity_registry as er
@@ -87,13 +87,17 @@ async def test_entity_translation_keys_and_authored_names_agree(
     from ttlock_ble import LogEntry, LogOperate
 
     from custom_components.ttlock_ble.connection import log_signal
-    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+    from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+    from custom_components.ttlock_ble.data import TtlockBleKnownCredential
 
     coordinator = setup_integration.runtime_data.coordinator
-    coordinator._fingerprints.async_replace(
-        sample_virtual_key.lockMac,
-        {TtlockBleEnrolledFingerprint(fingerprint_id=bytes(4), slot=1)},
-    )
+    mac = sample_virtual_key.lockMac
+    for credential in (
+        TtlockBleKnownCredential(TtlockBleCredentialType.FINGERPRINT, "00_1", "1"),
+        TtlockBleKnownCredential(TtlockBleCredentialType.CARD, "42", "42"),
+        TtlockBleKnownCredential.from_passcode(mac, "123456"),
+    ):
+        coordinator._credentials.async_add(mac, credential)
     coordinator.async_update_listeners()
     await hass.async_block_till_done()
 

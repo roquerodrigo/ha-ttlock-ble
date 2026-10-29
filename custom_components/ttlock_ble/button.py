@@ -1,4 +1,4 @@
-"""Button platform for ttlock_ble — reading the fingerprint list on demand."""
+"""Button platform for ttlock_ble — reading the credential lists on demand."""
 
 from __future__ import annotations
 
@@ -24,37 +24,37 @@ async def async_setup_entry(
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create one fingerprint-refresh button per lock this key may administer."""
+    """Create one credential-refresh button per lock this key may administer."""
     data = entry.runtime_data
     async_add_entities(
-        TtlockBleRefreshFingerprintsButton(data.coordinator, key)
+        TtlockBleRefreshCredentialsButton(data.coordinator, key)
         for key in data.virtual_keys
         if can_administer(key)
     )
 
 
-class TtlockBleRefreshFingerprintsButton(TtlockBleEntity, ButtonEntity):
+class TtlockBleRefreshCredentialsButton(TtlockBleEntity, ButtonEntity):
     """
-    Reads the fingerprint list now instead of on the next paced session.
+    Reads the credential lists now instead of on the next paced session.
 
-    No advertisement or push event tells a fingerprint change apart from
+    No advertisement or push event tells a credential change apart from
     any other record, so nothing could trigger this read on its own
     without polling the lock.
     """
 
-    _attr_translation_key = "refresh_fingerprints"
+    _attr_translation_key = "refresh_credentials"
     _attr_entity_category = EntityCategory.CONFIG
 
     @property
     def unique_id(self) -> str:
         """Return a stable unique id for this entity."""
-        return f"{self._key.lockMac}_refresh_fingerprints"
+        return f"{self._key.lockMac}_refresh_credentials"
 
     async def async_press(self) -> None:
-        """Read the list, and fail visibly when the lock could not be reached."""
-        if not await self.coordinator.async_refresh_fingerprints(self._key.lockMac):
+        """Read the lists, and fail visibly when the lock could not be reached."""
+        if not await self.coordinator.async_refresh_credentials(self._key.lockMac):
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
-                translation_key="fingerprints_not_read",
+                translation_key="credentials_not_read",
                 translation_placeholders={"lock": self._lock_name},
             )

@@ -131,8 +131,8 @@
       }
     },
     "button": {
-      "refresh_fingerprints": {
-        "name": "Refresh fingerprints"
+      "refresh_credentials": {
+        "name": "Refresh credentials"
       }
     },
     "event": {
@@ -160,6 +160,9 @@
       "battery": {
         "name": "Battery"
       },
+      "card_count": {
+        "name": "Enrolled cards"
+      },
       "clock_drift": {
         "name": "Clock drift"
       },
@@ -179,14 +182,20 @@
       }
     },
     "text": {
+      "card_name": {
+        "name": "Card {label}"
+      },
       "fingerprint_name": {
-        "name": "Fingerprint {number}"
+        "name": "Fingerprint {label}"
+      },
+      "passcode_name": {
+        "name": "Passcode {label}"
       }
     }
   },
   "exceptions": {
-    "fingerprints_not_read": {
-      "message": "Could not read the fingerprints of {lock}. Make sure the lock is in range and try again."
+    "credentials_not_read": {
+      "message": "Could not read the credentials of {lock}. Make sure the lock is in range and try again."
     }
   },
   "selector": {

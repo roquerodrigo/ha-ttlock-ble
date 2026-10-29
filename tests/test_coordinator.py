@@ -7,22 +7,31 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
-from ttlock_ble import DeviceInfo, FingerprintEntry, LockSound
+from ttlock_ble import (
+    CardEntry,
+    DeviceInfo,
+    FingerprintEntry,
+    KeyboardPwdType,
+    LockFeature,
+    LockSound,
+    PasscodeEntry,
+)
 
 from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
 from custom_components.ttlock_ble.coordinator import (
     CLOCK_CHECK_INTERVAL_SECONDS,
     CLOCK_DRIFT_THRESHOLD_SECONDS,
-    FINGERPRINT_CHECK_INTERVAL_SECONDS,
+    CREDENTIAL_CHECK_INTERVAL_SECONDS,
     SOUND_CHECK_INTERVAL_SECONDS,
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
 )
-from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+from custom_components.ttlock_ble.credential_store import TtlockBleCredentialStore
+from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+from custom_components.ttlock_ble.data import TtlockBleKnownCredential
 from custom_components.ttlock_ble.device_description_store import (
     TtlockBleDeviceDescriptionStore,
 )
-from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
 
 
 def test_parse_lock_state_locked() -> None:
@@ -47,6 +56,8 @@ def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicM
     conn.async_get_lock_time = AsyncMock(return_value=None)
     conn.async_get_lock_sound = AsyncMock(return_value=None)
     conn.async_get_fingerprints = AsyncMock(return_value=None)
+    conn.async_get_cards = AsyncMock(return_value=None)
+    conn.async_get_passcodes = AsyncMock(return_value=None)
     conn.async_calibrate_time = AsyncMock(return_value=True)
     return conn
 
@@ -57,12 +68,8 @@ def _coordinator(hass, connections, descriptions=None, clock_syncs=None):
         connections=connections,
         descriptions=descriptions or TtlockBleDeviceDescriptionStore(hass),
         clock_syncs=clock_syncs or TtlockBleClockSyncStore(hass),
-        fingerprints=TtlockBleFingerprintStore(hass),
+        credentials=TtlockBleCredentialStore(hass),
     )
-
-
-def _enrolled(entries: list[FingerprintEntry]) -> list[TtlockBleEnrolledFingerprint]:
-    return [TtlockBleEnrolledFingerprint.from_entry(entry) for entry in entries]
 
 
 async def test_poll_keeps_state_when_log_read_fails(hass) -> None:
@@ -852,56 +859,76 @@ def _sound_connection(*, enabled: bool = True, admin: bool = True) -> MagicMock:
     return conn
 
 
-def _fingerprint_connection(
-    *, fingerprints: list[FingerprintEntry] | None = None, admin: bool = True
+FINGERPRINT = FingerprintEntry(
+    fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+    slot=1,
+    start_date=None,
+    end_date=None,
+)
+CARD = CardEntry(card_id=bytes.fromhex("e3a1b2c4"), start_date=None, end_date=None)
+
+
+def _passcode(code: str) -> PasscodeEntry:
+    return PasscodeEntry(
+        passcode=code,
+        pwd_type=KeyboardPwdType.PERMANENT,
+        start_date=None,
+        end_date=None,
+        cyclic_schedule=None,
+    )
+
+
+def _credential_connection(
+    *, admin: bool = True, features: set[LockFeature] | None = None
 ) -> MagicMock:
-    """A connection whose lock reports its enrolled fingerprints when asked."""
+    """A connection whose lock lists a fingerprint, a card and a passcode."""
     conn = _mock_connection()
     conn.key = MagicMock(lockMac=MAC, adminPs="135792468" if admin else "")
     conn.key.is_admin = MagicMock(return_value=admin)
-    conn.async_get_fingerprints = AsyncMock(
-        return_value=[
-            FingerprintEntry(
-                fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
-                slot=1,
-                start_date=None,
-                end_date=None,
-            )
-        ]
-        if fingerprints is None
-        else fingerprints
+    conn.key.feature_mask = 0 if features is None else 1
+    conn.key.has_feature = MagicMock(
+        side_effect=lambda feature: features is None or feature in features
     )
+    conn.async_get_fingerprints = AsyncMock(return_value=[FINGERPRINT])
+    conn.async_get_cards = AsyncMock(return_value=[CARD])
+    conn.async_get_passcodes = AsyncMock(return_value=[_passcode("123456")])
     return conn
 
 
-async def test_the_fingerprints_are_unknown_until_a_session_carries_them(
+def _known(coordinator, credential_type):
+    return coordinator.async_credentials(MAC, credential_type)
+
+
+async def test_the_credentials_are_unknown_until_a_session_carries_them(
     hass,
 ) -> None:
-    coordinator = _coordinator(hass, {MAC: _fingerprint_connection()})
+    coordinator = _coordinator(hass, {MAC: _credential_connection()})
 
-    assert coordinator.async_fingerprints(MAC) is None
+    for credential_type in TtlockBleCredentialType:
+        assert _known(coordinator, credential_type) is None
 
 
-async def test_a_poll_reads_the_fingerprints(hass) -> None:
-    entries = [
-        FingerprintEntry(
-            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
-            slot=1,
-            start_date=None,
-            end_date=None,
-        )
-    ]
-    conn = _fingerprint_connection(fingerprints=entries)
+async def test_a_poll_reads_every_credential_list(hass) -> None:
+    conn = _credential_connection()
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_update_data()
 
-    conn.async_get_fingerprints.assert_awaited_once()
-    assert coordinator.async_fingerprints(MAC) == _enrolled(entries)
+    assert _known(coordinator, TtlockBleCredentialType.FINGERPRINT) == [
+        TtlockBleKnownCredential.from_fingerprint(FINGERPRINT)
+    ]
+    assert _known(coordinator, TtlockBleCredentialType.CARD) == [
+        TtlockBleKnownCredential(
+            TtlockBleCredentialType.CARD, "3819025092", "3819025092"
+        )
+    ]
+    assert _known(coordinator, TtlockBleCredentialType.PASSCODE) == [
+        TtlockBleKnownCredential.from_passcode(MAC, "123456")
+    ]
 
 
-async def test_the_fingerprint_read_tells_the_entities(hass) -> None:
-    coordinator = _coordinator(hass, {MAC: _fingerprint_connection()})
+async def test_the_credential_read_tells_the_entities(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _credential_connection()})
     listener = MagicMock()
     coordinator.async_add_listener(listener)
 
@@ -910,98 +937,138 @@ async def test_the_fingerprint_read_tells_the_entities(hass) -> None:
     listener.assert_called()
 
 
-async def test_the_fingerprints_are_read_at_most_once_per_interval(hass) -> None:
-    """Each read walks the whole enrolled list, one round trip per entry."""
-    conn = _fingerprint_connection()
+async def test_the_credentials_are_read_at_most_once_per_interval(hass) -> None:
+    """Each read walks a whole list, one round trip per entry."""
+    conn = _credential_connection()
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_update_data()
     await coordinator._async_update_data()
 
     conn.async_get_fingerprints.assert_awaited_once()
+    conn.async_get_cards.assert_awaited_once()
+    conn.async_get_passcodes.assert_awaited_once()
 
 
-async def test_the_fingerprints_are_read_again_once_the_interval_has_passed(
+async def test_the_credentials_are_read_again_once_the_interval_has_passed(
     hass,
 ) -> None:
-    conn = _fingerprint_connection()
+    conn = _credential_connection()
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_update_data()
-    coordinator._fingerprints_checked_at[MAC] -= FINGERPRINT_CHECK_INTERVAL_SECONDS
+    coordinator._credentials_checked_at[MAC] -= CREDENTIAL_CHECK_INTERVAL_SECONDS
     await coordinator._async_update_data()
 
     assert conn.async_get_fingerprints.await_count == 2
 
 
-async def test_a_fingerprint_read_that_did_not_land_is_tried_on_the_next_session(
+async def test_a_credential_read_that_did_not_land_is_tried_on_the_next_session(
     hass,
 ) -> None:
-    conn = _fingerprint_connection()
-    entries = [
-        FingerprintEntry(
-            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
-            slot=1,
-            start_date=None,
-            end_date=None,
-        )
-    ]
-    conn.async_get_fingerprints = AsyncMock(side_effect=[None, entries])
+    conn = _credential_connection()
+    conn.async_get_fingerprints = AsyncMock(side_effect=[None, [FINGERPRINT]])
+    conn.async_get_cards = AsyncMock(side_effect=[None, [CARD]])
+    conn.async_get_passcodes = AsyncMock(side_effect=[None, []])
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_update_data()
-    assert coordinator.async_fingerprints(MAC) is None
+    assert _known(coordinator, TtlockBleCredentialType.FINGERPRINT) is None
 
     await coordinator._async_update_data()
-    assert coordinator.async_fingerprints(MAC) == _enrolled(entries)
+    assert _known(coordinator, TtlockBleCredentialType.FINGERPRINT) is not None
+    assert _known(coordinator, TtlockBleCredentialType.PASSCODE) == []
 
 
-async def test_a_key_that_cannot_administer_is_never_asked_for_fingerprints(
+async def test_a_list_the_lock_refuses_waits_for_the_interval_once_another_landed(
+    hass,
+) -> None:
+    conn = _credential_connection()
+    conn.async_get_cards = AsyncMock(return_value=None)
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_cards.assert_awaited_once()
+    assert _known(coordinator, TtlockBleCredentialType.CARD) is None
+
+
+async def test_a_lock_without_cards_is_never_asked_for_them(hass) -> None:
+    conn = _credential_connection(
+        features={LockFeature.FINGER_PRINT, LockFeature.PASSCODE}
+    )
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    assert await coordinator.async_refresh_credentials(MAC) is True
+
+    conn.async_get_cards.assert_not_awaited()
+    conn.async_get_fingerprints.assert_awaited_once()
+
+
+async def test_a_lock_with_none_of_the_credentials_reads_nothing(hass) -> None:
+    conn = _credential_connection(features=set())
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    assert await coordinator.async_refresh_credentials(MAC) is False
+
+    conn.async_get_fingerprints.assert_not_awaited()
+
+
+async def test_a_passcode_missing_from_a_later_list_is_still_known(hass) -> None:
+    """The list leaves out passcodes the app generated offline until used."""
+    conn = _credential_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+    await coordinator.async_refresh_credentials(MAC)
+
+    conn.async_get_passcodes = AsyncMock(return_value=[_passcode("654321")])
+    await coordinator.async_refresh_credentials(MAC)
+
+    assert {
+        credential.label
+        for credential in _known(coordinator, TtlockBleCredentialType.PASSCODE)
+    } == {"1•••56", "6•••21"}
+
+
+async def test_a_key_that_cannot_administer_is_never_asked_for_credentials(
     hass,
 ) -> None:
     """The firmware refuses the read without CHECK_ADMIN; asking costs a round trip."""
-    conn = _fingerprint_connection(admin=False)
+    conn = _credential_connection(admin=False)
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_update_data()
 
     conn.async_get_fingerprints.assert_not_awaited()
-    assert coordinator.async_fingerprints(MAC) is None
+    conn.async_get_cards.assert_not_awaited()
+    conn.async_get_passcodes.assert_not_awaited()
 
 
-async def test_async_refresh_fingerprints_bypasses_the_pacing_interval(hass) -> None:
+async def test_async_refresh_credentials_bypasses_the_pacing_interval(hass) -> None:
     """The refresh button's whole point: land even right after a read."""
-    entries = [
-        FingerprintEntry(
-            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
-            slot=1,
-            start_date=None,
-            end_date=None,
-        )
-    ]
-    conn = _fingerprint_connection(fingerprints=entries)
+    conn = _credential_connection()
     coordinator = _coordinator(hass, {MAC: conn})
     await coordinator._async_update_data()
     conn.async_get_fingerprints.assert_awaited_once()
 
-    assert await coordinator.async_refresh_fingerprints(MAC) is True
+    assert await coordinator.async_refresh_credentials(MAC) is True
 
     assert conn.async_get_fingerprints.await_count == 2
 
 
-async def test_async_refresh_fingerprints_reports_a_read_that_did_not_land(
+async def test_async_refresh_credentials_reports_a_read_that_did_not_land(
     hass,
 ) -> None:
-    conn = _fingerprint_connection()
-    conn.async_get_fingerprints = AsyncMock(return_value=None)
+    conn = _credential_connection()
+    conn.async_get_passcodes = AsyncMock(return_value=None)
     coordinator = _coordinator(hass, {MAC: conn})
 
-    assert await coordinator.async_refresh_fingerprints(MAC) is False
-    assert coordinator.async_fingerprints(MAC) is None
+    assert await coordinator.async_refresh_credentials(MAC) is False
+    assert _known(coordinator, TtlockBleCredentialType.FINGERPRINT) is not None
 
 
-async def test_the_log_read_carries_the_fingerprint_read(hass) -> None:
-    conn = _fingerprint_connection()
+async def test_the_log_read_carries_the_credential_read(hass) -> None:
+    conn = _credential_connection()
     coordinator = _coordinator(hass, {MAC: conn})
 
     await coordinator._async_fetch_operation_log(MAC, conn)
@@ -1009,15 +1076,14 @@ async def test_the_log_read_carries_the_fingerprint_read(hass) -> None:
     conn.async_get_fingerprints.assert_awaited_once()
 
 
-async def test_async_refresh_fingerprints_still_respects_the_admin_gate(hass) -> None:
+async def test_async_refresh_credentials_still_respects_the_admin_gate(hass) -> None:
     """`force` bypasses the pacing interval, never the admin-password check."""
-    conn = _fingerprint_connection(admin=False)
+    conn = _credential_connection(admin=False)
     coordinator = _coordinator(hass, {MAC: conn})
 
-    assert await coordinator.async_refresh_fingerprints(MAC) is False
+    assert await coordinator.async_refresh_credentials(MAC) is False
 
     conn.async_get_fingerprints.assert_not_awaited()
-    assert coordinator.async_fingerprints(MAC) is None
 
 
 async def test_the_sound_setting_is_unknown_until_a_session_carries_it(hass) -> None:

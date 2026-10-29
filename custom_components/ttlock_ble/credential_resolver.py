@@ -8,11 +8,12 @@ from ttlock_ble import LogOperate
 
 from .credential_type import TtlockBleCredentialType
 from .data import TtlockBleEnrolledFingerprint, TtlockBleLogCredential
+from .data.known_credential import passcode_key
 
 if TYPE_CHECKING:
     from ttlock_ble import LogEntry
 
-    from .fingerprint_store import TtlockBleFingerprintStore
+    from .credential_store import TtlockBleCredentialStore
 
 HOME_ASSISTANT_NAME = "Home Assistant"
 
@@ -56,39 +57,68 @@ BLE_APP_RECORD_TYPES: frozenset[int] = frozenset(
 class TtlockBleCredentialResolver:
     """Tells the type, identifier and name of the credential behind a record."""
 
-    def __init__(self, fingerprints: TtlockBleFingerprintStore) -> None:
-        """Bind to the store holding the names given to fingerprints."""
-        self._fingerprints = fingerprints
+    def __init__(self, credentials: TtlockBleCredentialStore) -> None:
+        """Bind to the store holding the names given to credentials."""
+        self._credentials = credentials
 
     def resolve(self, mac: str, record: LogEntry) -> TtlockBleLogCredential:
         """Return what `record`, read from the lock `mac`, says about its credential."""
         credential_type = TtlockBleCredentialType.of_record(record.record_type)
-        identifier = (
-            None if record.record_type in PASSCODE_RECORD_TYPES else record.password
-        )
+        key = self._key_of(mac, credential_type, record.password)
         return TtlockBleLogCredential(
             credential_type=credential_type,
-            identifier=identifier,
-            name=self._name_of(mac, record, credential_type, identifier),
+            identifier=self._identifier_of(mac, record, credential_type, key),
+            name=self._name_of(mac, record, credential_type, key),
         )
+
+    def _identifier_of(
+        self,
+        mac: str,
+        record: LogEntry,
+        credential_type: TtlockBleCredentialType | None,
+        key: str | None,
+    ) -> str | None:
+        """
+        Return what a record may show of its credential.
+
+        A passcode shows only the label of one already known, never the
+        code, and nothing at all for a code the lock refused.
+        """
+        if record.record_type not in PASSCODE_RECORD_TYPES:
+            return record.password
+        if credential_type is not TtlockBleCredentialType.PASSCODE or key is None:
+            return None
+        return self._credentials.label_of(mac, credential_type, key)
 
     def _name_of(
         self,
         mac: str,
         record: LogEntry,
         credential_type: TtlockBleCredentialType | None,
-        identifier: str | None,
+        key: str | None,
     ) -> str | None:
-        if credential_type is TtlockBleCredentialType.FINGERPRINT:
-            return self._fingerprint_name(mac, identifier)
+        if credential_type is not None and key is not None:
+            return self._credentials.name_of(mac, credential_type, key)
         if record.record_type in BLE_APP_RECORD_TYPES and record.uid == 0:
             return HOME_ASSISTANT_NAME
         return None
 
-    def _fingerprint_name(self, mac: str, identifier: str | None) -> str | None:
-        if identifier is None or not identifier.isdigit():
+    @staticmethod
+    def _key_of(
+        mac: str,
+        credential_type: TtlockBleCredentialType | None,
+        password: str | None,
+    ) -> str | None:
+        """Return the store key of the credential a record names, if it has one."""
+        if not password:
             return None
-        fingerprint = TtlockBleEnrolledFingerprint.from_number(int(identifier))
-        if fingerprint is None:
-            return None
-        return self._fingerprints.name_of(mac, fingerprint)
+        if credential_type is TtlockBleCredentialType.FINGERPRINT:
+            if not password.isdigit():
+                return None
+            fingerprint = TtlockBleEnrolledFingerprint.from_number(int(password))
+            return None if fingerprint is None else fingerprint.token
+        if credential_type is TtlockBleCredentialType.CARD:
+            return password
+        if credential_type is TtlockBleCredentialType.PASSCODE:
+            return passcode_key(mac, password)
+        return None

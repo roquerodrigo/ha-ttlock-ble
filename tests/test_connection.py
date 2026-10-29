@@ -877,6 +877,51 @@ async def test_get_fingerprints_that_fails_costs_nothing_else(
     assert await conn.async_get_fingerprints() is None
 
 
+@pytest.mark.parametrize("read", ["cards", "passcodes"])
+async def test_a_credential_list_is_what_the_lock_reports(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    read,
+) -> None:
+    entries = [object()]
+    setattr(mock_ttlock_client, f"get_{read}", AsyncMock(return_value=entries))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await getattr(conn, f"async_get_{read}")() is entries
+
+
+@pytest.mark.parametrize("read", ["cards", "passcodes"])
+async def test_a_credential_list_is_none_when_device_missing(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    read,
+) -> None:
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await getattr(conn, f"async_get_{read}")() is None
+    mock_ttlock_client.connect.assert_not_awaited()
+
+
+@pytest.mark.parametrize("read", ["cards", "passcodes"])
+async def test_a_credential_list_that_fails_costs_nothing_else(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+    read,
+) -> None:
+    setattr(
+        mock_ttlock_client,
+        f"get_{read}",
+        AsyncMock(side_effect=TTLockError("refused")),
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await getattr(conn, f"async_get_{read}")() is None
+
+
 async def test_calibrate_time_reports_that_it_landed(
     hass,
     sample_virtual_key,

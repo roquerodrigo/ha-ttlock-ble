@@ -59,7 +59,7 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 5
+    assert len(hass.states.async_all("sensor")) == 6
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -189,10 +189,10 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
 
     from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.credential_store import TtlockBleCredentialStore
     from custom_components.ttlock_ble.device_description_store import (
         TtlockBleDeviceDescriptionStore,
     )
-    from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
     from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
 
     coordinator = TtlockBleDataUpdateCoordinator(
@@ -200,7 +200,7 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
         {},
         TtlockBleDeviceDescriptionStore(hass),
         TtlockBleClockSyncStore(hass),
-        TtlockBleFingerprintStore(hass),
+        TtlockBleCredentialStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)
@@ -443,15 +443,27 @@ async def _record(hass, mac, record_type, *, minute=0, **fields) -> None:
 
 
 async def _name_fingerprint(hass, mac, number: int, name: str) -> None:
-    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
-    from custom_components.ttlock_ble.fingerprint_store import (
-        async_get_fingerprint_store,
+    from custom_components.ttlock_ble.credential_store import (
+        async_get_credential_store,
+    )
+    from custom_components.ttlock_ble.credential_type import TtlockBleCredentialType
+    from custom_components.ttlock_ble.data import (
+        TtlockBleEnrolledFingerprint,
+        TtlockBleKnownCredential,
     )
 
-    fingerprint = TtlockBleEnrolledFingerprint.from_number(number)
-    store = await async_get_fingerprint_store(hass)
-    store.async_replace(mac, {fingerprint})
-    store.async_set_name(mac, fingerprint, name)
+    token = TtlockBleEnrolledFingerprint.from_number(number).token
+    store = await async_get_credential_store(hass)
+    store.async_replace(
+        mac,
+        TtlockBleCredentialType.FINGERPRINT,
+        [
+            TtlockBleKnownCredential(
+                TtlockBleCredentialType.FINGERPRINT, token, str(number)
+            )
+        ],
+    )
+    store.async_set_name(mac, TtlockBleCredentialType.FINGERPRINT, token, name)
 
 
 async def test_last_unlocked_by_is_unknown_before_any_unlock(
@@ -495,7 +507,7 @@ async def test_last_unlocked_by_falls_back_to_the_fingerprint_number(
     assert hass.states.get(LAST_UNLOCKED_BY).state == "2752513"
 
 
-async def test_last_unlocked_by_a_passcode_tells_the_type_but_not_the_code(
+async def test_last_unlocked_by_a_passcode_shows_its_label_not_its_code(
     hass, setup_integration, sample_virtual_key
 ) -> None:
     from ttlock_ble import LogOperate
@@ -508,9 +520,22 @@ async def test_last_unlocked_by_a_passcode_tells_the_type_but_not_the_code(
     )
 
     state = hass.states.get(LAST_UNLOCKED_BY)
-    assert state.state == "unknown"
+    assert state.state == "9•••77"
     assert state.attributes["credential_type"] == "passcode"
-    assert "credential" not in state.attributes
+    assert state.attributes["credential"] == "9•••77"
+    assert "998877" not in str(state.as_dict())
+
+
+async def test_last_unlocked_by_is_unknown_for_a_credential_with_no_identifier(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _record(hass, sample_virtual_key.lockMac, LogOperate.LOW_BATTERY_AUTO_UNLOCK)
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "unknown"
+    assert "credential_type" not in state.attributes
 
 
 async def test_last_unlocked_by_names_home_assistant(

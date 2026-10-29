@@ -1,4 +1,4 @@
-"""Sensor platform for ttlock_ble — lock health, fingerprints and the last unlock."""
+"""Sensor platform for ttlock_ble — lock health, credentials and the last unlock."""
 
 from __future__ import annotations
 
@@ -21,14 +21,15 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from ttlock_ble import LogOperate
+from ttlock_ble import LockFeature, LogOperate
 
 from .connection import event_signal, log_signal
 from .credential_resolver import TtlockBleCredentialResolver
+from .credential_store import async_get_credential_store
+from .credential_type import TtlockBleCredentialType
 from .entity import TtlockBleEntity
 from .event import UNLOCK_RECORD_TYPES
-from .fingerprint_store import async_get_fingerprint_store
-from .key_privileges import can_administer
+from .key_privileges import can_administer, may_hold
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -60,7 +61,7 @@ async def async_setup_entry(
 ) -> None:
     """Create the per-lock sensors."""
     data = entry.runtime_data
-    resolver = TtlockBleCredentialResolver(await async_get_fingerprint_store(hass))
+    resolver = TtlockBleCredentialResolver(await async_get_credential_store(hass))
     async_add_entities(
         sensor
         for key in data.virtual_keys
@@ -71,7 +72,12 @@ async def async_setup_entry(
             TtlockBleLastUnlockedBySensor(data.coordinator, key, resolver),
             *(
                 (TtlockBleFingerprintCountSensor(data.coordinator, key),)
-                if can_administer(key)
+                if can_administer(key) and may_hold(key, LockFeature.FINGER_PRINT)
+                else ()
+            ),
+            *(
+                (TtlockBleCardCountSensor(data.coordinator, key),)
+                if can_administer(key) and may_hold(key, LockFeature.IC)
                 else ()
             ),
         )
@@ -281,8 +287,31 @@ class TtlockBleFingerprintCountSensor(TtlockBleEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         """Return how many fingerprints the last read listed, if any."""
-        fingerprints = self.coordinator.async_fingerprints(self._key.lockMac)
+        fingerprints = self.coordinator.async_credentials(
+            self._key.lockMac, TtlockBleCredentialType.FINGERPRINT
+        )
         return None if fingerprints is None else len(fingerprints)
+
+
+class TtlockBleCardCountSensor(TtlockBleEntity, SensorEntity):
+    """How many cards the lock lists, as of the last read."""
+
+    _attr_translation_key = "card_count"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_card_count"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return how many cards the last read listed, if any."""
+        cards = self.coordinator.async_credentials(
+            self._key.lockMac, TtlockBleCredentialType.CARD
+        )
+        return None if cards is None else len(cards)
 
 
 class TtlockBleLastUnlockedBySensor(TtlockBleEntity, RestoreSensor):
@@ -290,11 +319,11 @@ class TtlockBleLastUnlockedBySensor(TtlockBleEntity, RestoreSensor):
     Who last unlocked the lock, as its operation log tells it.
 
     The state is the name of the credential when one is known — a named
-    fingerprint, or `Home Assistant` for an unlock sent by this
-    integration — and otherwise its identifier, such as the number of a
-    fingerprint nobody named yet. A passcode has neither, since the only
-    thing the lock records for it is the code itself, so its unlock
-    reads `unknown` with `credential_type` saying it was a passcode.
+    fingerprint, card or passcode, or `Home Assistant` for an unlock sent
+    by this integration — and otherwise its identifier: the number of a
+    fingerprint or card nobody named yet, or the masked label of a
+    passcode. Anything else reads `unknown`, with `credential_type`
+    saying what was used.
 
     Records reach this in the order they are read, and a read can carry
     several, so one older than the unlock already shown is ignored.
