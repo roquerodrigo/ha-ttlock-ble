@@ -411,3 +411,63 @@ async def test_a_record_with_nothing_to_learn_changes_nothing(
     await _record(hass, LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS)
 
     assert hass.states.async_all("text") == []
+
+
+def _log_attributes(hass) -> dict:
+    (state,) = hass.states.async_all("event")
+    return dict(state.attributes)
+
+
+async def test_the_record_that_deletes_a_passcode_still_names_it(
+    hass, setup_integration
+) -> None:
+    await _record(hass, LogOperate.KEYBOARD_PASSWORD_UNLOCK, password="123456")
+    await _set_name(hass, "Front door Passcode 1•••56", "Alice")
+
+    await _record(hass, LogOperate.KEYBOARD_REMOVE_SINGLE_PASSWORD, password="123456")
+
+    attributes = _log_attributes(hass)
+    assert attributes["record_type"] == "keyboard_remove_single_password"
+    assert attributes["credential"] == "1•••56"
+    assert attributes["credential_name"] == "Alice"
+    assert _name_states(hass, "passcode_name") == {}
+
+
+async def test_the_record_that_changes_a_passcode_names_the_old_one(
+    hass, setup_integration
+) -> None:
+    await _record(hass, LogOperate.KEYBOARD_PASSWORD_UNLOCK, password="123456")
+    await _set_name(hass, "Front door Passcode 1•••56", "Alice")
+
+    await _record(
+        hass,
+        LogOperate.KEYBOARD_MODIFY_PASSWORD,
+        password="123456",
+        new_password="987654",
+    )
+
+    attributes = _log_attributes(hass)
+    assert attributes["credential"] == "1•••56"
+    assert attributes["credential_name"] == "Alice"
+
+
+async def test_the_record_that_adds_a_passcode_already_shows_its_label(
+    hass, setup_integration
+) -> None:
+    await _record(hass, LogOperate.ADD_PASSCODE_SUCCESSFULLY, password="123456")
+
+    assert _log_attributes(hass)["credential"] == "1•••56"
+
+
+async def test_a_reload_keeps_learning_before_and_forgetting_after_the_event(
+    hass, setup_integration
+) -> None:
+    await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+    await _record(hass, LogOperate.KEYBOARD_PASSWORD_UNLOCK, password="123456")
+    assert _log_attributes(hass)["credential"] == "1•••56"
+
+    await _record(hass, LogOperate.PASSCODE_EXPIRED, password="123456")
+
+    assert _log_attributes(hass)["credential"] == "1•••56"
+    assert _name_states(hass, "passcode_name") == {}

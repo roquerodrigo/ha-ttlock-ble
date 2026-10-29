@@ -15,6 +15,8 @@ from .credential_type import TtlockBleCredentialType
 from .data import TtlockBleKnownCredential
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
     from ttlock_ble import LogEntry, VirtualKey
@@ -56,8 +58,10 @@ class TtlockBlePasscodeLedger:
     and expiry, so it is what passcodes are learned from and forgotten by.
     A changed code keeps the name the old one had.
 
-    It listens before the platforms do, so the log events and the
-    last-unlocked-by sensor already see a passcode the record introduced.
+    It follows each log twice. Passcodes are learned before the platforms
+    see a record, so the record that introduces one is already shown with
+    its label; they are changed and forgotten after, so the record that
+    deletes or changes one still shows whose it was.
     """
 
     def __init__(
@@ -72,31 +76,56 @@ class TtlockBlePasscodeLedger:
         self._coordinator = coordinator
 
     @callback
-    def async_track(self, virtual_keys: list[VirtualKey]) -> list[CALLBACK_TYPE]:
-        """Follow the operation log of every lock; return the unsubscribers."""
+    def async_track_learning(
+        self, virtual_keys: list[VirtualKey]
+    ) -> list[CALLBACK_TYPE]:
+        """Learn passcodes from every lock's log; return the unsubscribers."""
+        return self._async_follow(virtual_keys, self._async_learn)
+
+    @callback
+    def async_track_forgetting(
+        self, virtual_keys: list[VirtualKey]
+    ) -> list[CALLBACK_TYPE]:
+        """Change and forget passcodes per log record; return the unsubscribers."""
+        return self._async_follow(virtual_keys, self._async_forget)
+
+    @callback
+    def _async_follow(
+        self,
+        virtual_keys: list[VirtualKey],
+        apply: Callable[[str, LogEntry], bool],
+    ) -> list[CALLBACK_TYPE]:
         return [
             async_dispatcher_connect(
                 self._hass,
                 log_signal(key.lockMac),
-                partial(self._async_note, key.lockMac),
+                partial(self._async_note, apply, key.lockMac),
             )
             for key in virtual_keys
         ]
 
     @callback
-    def _async_note(self, mac: str, record: LogEntry) -> None:
-        if self._async_apply(mac, record):
+    def _async_note(
+        self, apply: Callable[[str, LogEntry], bool], mac: str, record: LogEntry
+    ) -> None:
+        if apply(mac, record):
             self._coordinator.async_update_listeners()
 
-    def _async_apply(self, mac: str, record: LogEntry) -> bool:
+    def _async_learn(self, mac: str, record: LogEntry) -> bool:
+        if record.record_type not in ACCEPTED_PASSCODE_RECORD_TYPES:
+            return False
+        if not record.password:
+            return False
+        return self._store.async_add(
+            mac, TtlockBleKnownCredential.from_passcode(mac, record.password)
+        )
+
+    def _async_forget(self, mac: str, record: LogEntry) -> bool:
         if record.record_type == LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS:
             return self._store.async_clear(mac, TtlockBleCredentialType.PASSCODE)
-        passcode = record.password
-        if not passcode:
+        if not record.password:
             return False
-        credential = TtlockBleKnownCredential.from_passcode(mac, passcode)
-        if record.record_type in ACCEPTED_PASSCODE_RECORD_TYPES:
-            return self._store.async_add(mac, credential)
+        credential = TtlockBleKnownCredential.from_passcode(mac, record.password)
         if record.record_type in DROPPED_PASSCODE_RECORD_TYPES:
             return self._store.async_remove(mac, credential)
         if record.record_type == LogOperate.KEYBOARD_MODIFY_PASSWORD:
