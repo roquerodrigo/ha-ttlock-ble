@@ -9,6 +9,7 @@ from custom_components.ttlock_ble.device_description_store import (
     TtlockBleDeviceDescriptionStore,
 )
 from custom_components.ttlock_ble.entity import TtlockBleEntity
+from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
 
 
 def _entity(hass, key, description=None) -> TtlockBleEntity:
@@ -20,6 +21,7 @@ def _entity(hass, key, description=None) -> TtlockBleEntity:
         connections={},
         descriptions=descriptions,
         clock_syncs=TtlockBleClockSyncStore(hass),
+        fingerprints=TtlockBleFingerprintStore(hass),
     )
     return TtlockBleEntity(coordinator, key)
 

@@ -24,12 +24,7 @@ from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
 from .data import TtlockBleData, TtlockBleLogCursor
 from .device_description_store import async_get_device_description_store
-from .fingerprint_identifiers import (
-    fingerprints_hub_identifier,
-    lock_identifier,
-    lock_mac_of,
-)
-from .key_privileges import can_administer
+from .fingerprint_store import async_get_fingerprint_store
 from .record_store import async_get_record_store
 
 if TYPE_CHECKING:
@@ -49,6 +44,7 @@ PLATFORMS: list[Platform] = [
     Platform.LOCK,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.TEXT,
 ]
 
 
@@ -58,12 +54,8 @@ def _configured_macs(config: TtlockBleConfigData) -> set[str]:
 
 
 def _device_macs(device: DeviceEntry) -> set[str]:
-    """Return the formatted MACs of the locks a device belongs to."""
-    return {
-        lock_mac_of(identifier)
-        for domain, identifier in device.identifiers
-        if domain == DOMAIN
-    }
+    """Return the formatted MACs this integration stamped on a device."""
+    return {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
 
 
 @callback
@@ -88,33 +80,6 @@ def _async_prune_stale_devices(
                 device.name or device.id,
             )
             device_registry.async_remove_device(device.id)
-
-
-@callback
-def _async_register_devices(
-    hass: HomeAssistant,
-    entry: TtlockBleConfigEntry,
-    virtual_keys: list[VirtualKey],
-) -> None:
-    """
-    Create each lock's device, and its fingerprints device, before any platform.
-
-    Platforms are forwarded concurrently, and a device can only be linked
-    to one that is already registered. The entities' own `device_info`
-    fills in the names, models and connections afterwards.
-    """
-    device_registry = async_get_device_registry(hass)
-    for key in virtual_keys:
-        lock_device = device_registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={lock_identifier(key.lockMac)},
-        )
-        if can_administer(key):
-            device_registry.async_get_or_create(
-                config_entry_id=entry.entry_id,
-                identifiers={fingerprints_hub_identifier(key.lockMac)},
-                via_device_id=lock_device.id,
-            )
 
 
 async def async_remove_config_entry_device(
@@ -160,11 +125,13 @@ async def async_setup_entry(
 
     description_store = await async_get_device_description_store(hass)
     clock_sync_store = await async_get_clock_sync_store(hass)
+    fingerprint_store = await async_get_fingerprint_store(hass)
     coordinator = TtlockBleDataUpdateCoordinator(
         hass=hass,
         connections=connections,
         descriptions=description_store,
         clock_syncs=clock_sync_store,
+        fingerprints=fingerprint_store,
     )
 
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
@@ -199,7 +166,6 @@ async def async_setup_entry(
         bluetooth_unsubs=bluetooth_unsubs,
     )
 
-    _async_register_devices(hass, entry, virtual_keys)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True

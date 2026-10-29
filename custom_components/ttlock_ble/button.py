@@ -9,7 +9,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
-from .fingerprints_hub_entity import TtlockBleFingerprintsHubEntity
+from .entity import TtlockBleEntity
 from .key_privileges import can_administer
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ async def async_setup_entry(
     )
 
 
-class TtlockBleRefreshFingerprintsButton(TtlockBleFingerprintsHubEntity, ButtonEntity):
+class TtlockBleRefreshFingerprintsButton(TtlockBleEntity, ButtonEntity):
     """
     Reads the fingerprint list now instead of on the next paced session.
 

@@ -59,7 +59,7 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 4
+    assert len(hass.states.async_all("sensor")) == 5
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -192,6 +192,7 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
     from custom_components.ttlock_ble.device_description_store import (
         TtlockBleDeviceDescriptionStore,
     )
+    from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
     from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
 
     coordinator = TtlockBleDataUpdateCoordinator(
@@ -199,6 +200,7 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
         {},
         TtlockBleDeviceDescriptionStore(hass),
         TtlockBleClockSyncStore(hass),
+        TtlockBleFingerprintStore(hass),
     )
     coordinator.data = {}
     entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)
@@ -413,3 +415,280 @@ async def test_last_seen_rereads_without_touching_the_coordinator(
     assert written is not None
     assert abs((written - expected).total_seconds()) < 5
     refresh.assert_not_called()
+
+
+LAST_UNLOCKED_BY = "sensor.front_door_last_unlocked_by"
+
+
+async def _record(hass, mac, record_type, *, minute=0, **fields) -> None:
+    import datetime as dt
+
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LogEntry
+
+    from custom_components.ttlock_ble.connection import log_signal
+
+    async_dispatcher_send(
+        hass,
+        log_signal(mac),
+        LogEntry(
+            record_number=minute,
+            record_type=int(record_type),
+            operate_date=dt.datetime(2026, 10, 28, 10, minute),  # noqa: DTZ001 — lock RTC is naive
+            lock_battery=80,
+            **fields,
+        ),
+    )
+    await hass.async_block_till_done()
+
+
+async def _name_fingerprint(hass, mac, number: int, name: str) -> None:
+    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+    from custom_components.ttlock_ble.fingerprint_store import (
+        async_get_fingerprint_store,
+    )
+
+    fingerprint = TtlockBleEnrolledFingerprint.from_number(number)
+    store = await async_get_fingerprint_store(hass)
+    store.async_replace(mac, {fingerprint})
+    store.async_set_name(mac, fingerprint, name)
+
+
+async def test_last_unlocked_by_is_unknown_before_any_unlock(
+    hass, setup_integration
+) -> None:
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "unknown"
+
+
+async def test_last_unlocked_by_names_a_named_fingerprint(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _name_fingerprint(hass, sample_virtual_key.lockMac, 2752513, "Alice")
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "Alice"
+    assert state.attributes["credential_type"] == "fingerprint"
+    assert state.attributes["credential"] == "2752513"
+    assert state.attributes["unlocked_at"] == "2026-10-28T10:00:00"
+
+
+async def test_last_unlocked_by_falls_back_to_the_fingerprint_number(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "2752513"
+
+
+async def test_last_unlocked_by_a_passcode_tells_the_type_but_not_the_code(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.KEYBOARD_PASSWORD_UNLOCK,
+        password="998877",
+    )
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "unknown"
+    assert state.attributes["credential_type"] == "passcode"
+    assert "credential" not in state.attributes
+
+
+async def test_last_unlocked_by_names_home_assistant(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _record(hass, sample_virtual_key.lockMac, LogOperate.MOBILE_UNLOCK, uid=0)
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "Home Assistant"
+    assert state.attributes["credential_type"] == "app"
+
+
+async def test_last_unlocked_by_ignores_what_is_not_an_unlock(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _name_fingerprint(hass, sample_virtual_key.lockMac, 2752513, "Alice")
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+    for minute, record_type in enumerate(
+        (
+            LogOperate.DOOR_SENSOR_UNLOCK,
+            LogOperate.FR_LOCK,
+            LogOperate.ERROR_PASSWORD_UNLOCK,
+        ),
+        start=1,
+    ):
+        await _record(
+            hass, sample_virtual_key.lockMac, record_type, minute=minute, password="1"
+        )
+
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "Alice"
+
+
+async def test_last_unlocked_by_ignores_an_older_unlock(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.IC_UNLOCK_SUCCEED,
+        minute=5,
+        password="3819472054",
+    )
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.FR_UNLOCK_SUCCEED,
+        minute=1,
+        password="2752513",
+    )
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "3819472054"
+    assert state.attributes["credential_type"] == "card"
+
+
+async def test_last_unlocked_by_takes_an_undated_unlock(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LogEntry, LogOperate
+
+    from custom_components.ttlock_ble.connection import log_signal
+
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.FR_UNLOCK_SUCCEED,
+        minute=5,
+        password="2752513",
+    )
+    async_dispatcher_send(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        LogEntry(
+            record_number=9,
+            record_type=int(LogOperate.IC_UNLOCK_SUCCEED),
+            operate_date=None,
+            lock_battery=80,
+            password="3819472054",
+        ),
+    )
+    await hass.async_block_till_done()
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "3819472054"
+    assert "unlocked_at" not in state.attributes
+
+
+async def _setup_with_restored(hass, sample_stored_key, value, attributes) -> None:
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import (
+        MockConfigEntry,
+        mock_restore_cache_with_extra_data,
+    )
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State(LAST_UNLOCKED_BY, value or "unknown", attributes),
+                {"native_value": value, "native_unit_of_measurement": None},
+            ),
+        ),
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_last_unlocked_by_survives_a_restart(
+    hass,
+    enable_bluetooth,
+    enable_custom_integrations,
+    sample_stored_key,
+    sample_virtual_key,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    from ttlock_ble import LogOperate
+
+    await _setup_with_restored(
+        hass,
+        sample_stored_key,
+        "Alice",
+        {
+            "credential_type": "fingerprint",
+            "credential": "2752513",
+            "unlocked_at": "2026-10-28T10:05:00",
+        },
+    )
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "Alice"
+    assert state.attributes["credential_type"] == "fingerprint"
+    assert state.attributes["credential"] == "2752513"
+    assert state.attributes["unlocked_at"] == "2026-10-28T10:05:00"
+
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.IC_UNLOCK_SUCCEED,
+        minute=1,
+        password="3819472054",
+    )
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "Alice"
+
+
+async def test_last_unlocked_by_restores_an_unknown_unlock(
+    hass,
+    enable_bluetooth,
+    enable_custom_integrations,
+    sample_stored_key,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
+    await _setup_with_restored(
+        hass, sample_stored_key, None, {"credential_type": "passcode"}
+    )
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "unknown"
+    assert state.attributes["credential_type"] == "passcode"
+    assert "unlocked_at" not in state.attributes

@@ -21,6 +21,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
 - **Other TTLock-based apps** — accounts created in the Schlage Breeze app sign in the same way, by picking the app at setup.
 - **Door sensor** — a lock with a paired door sensor gets a door entity, created the first time the lock reports the door.
+- **Who unlocked** — every log event says what kind of credential was used, its identifier and, once named, whose it is; a sensor keeps the last unlock. Enrolled fingerprints are listed and can each be given the name of the person they belong to.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
 - **Connects only on demand** — nothing is held open. A session is opened when a command needs the lock, when the lock advertises that it has records worth reading, or when the permanent connection option asks for one.
@@ -30,7 +31,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 
 ## Entities
 
-Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to eight entities:
+Each configured lock produces one HA device, named with the model, hardware and firmware the lock reports about itself, carrying up to eleven entities, plus one per enrolled fingerprint:
 
 | Entity | Domain | Purpose |
 |---|---|---|
@@ -41,22 +42,34 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
+| `sensor.<alias>_last_unlocked_by` | `sensor` | Who last unlocked the lock, from its operation log (see [Who unlocked](#who-unlocked)). |
 | `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep, read back from the lock on sessions opened for something else and re-read at most hourly. `unknown` until a session has carried a read. Only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
 
-The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential`, `credential_name`, `key_id` and `accessory_battery` when the record carries them. `credential` is only populated for record types where the value is an identifier (card number, fingerprint id, fob MAC) — record types where it would be a working door code never expose it.
+The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential_type`, `credential`, `credential_name`, `key_id` and `accessory_battery` when the record carries them.
 
-`credential_name` says whose credential it was, when that is known: for a fingerprint record, the name of that fingerprint's device (see [Fingerprints](#fingerprints)), so renaming the device to the person's name is enough to know who opened the door; for a lock or unlock sent over BLE by this integration, `Home Assistant`. Keypad codes stay unnamed, since the only thing the lock records for them is the code itself.
+### Who unlocked
+
+Three event attributes describe the credential behind a record:
+
+| Attribute | Meaning |
+|---|---|
+| `credential_type` | What was used: `fingerprint`, `card`, `passcode`, `app`, `gateway`, `key_fob`, `wireless_keypad`, `mechanical_key`, `face`, `palm_vein` or `qr_code`. |
+| `credential` | Its identifier: the fingerprint number, the card number or the accessory MAC. A passcode never has one, since the value the lock records for it is the working door code itself. |
+| `credential_name` | Whose it is, when that is known: the name given to a fingerprint (see [Fingerprints](#fingerprints)), or `Home Assistant` for a lock or unlock sent over BLE by this integration. |
+
+`sensor.<alias>_last_unlocked_by` keeps the last unlock the log reported. Its state is the `credential_name` when there is one, otherwise the `credential` — the number of a fingerprint nobody named yet, say — and `unknown` for a passcode. It carries `credential_type`, `credential` and `unlocked_at` as attributes and survives a restart. A door sensor reporting the door open does not replace it, and a record older than the unlock already shown is ignored.
 
 ### Fingerprints
 
-An admin key also gets a **"\<lock\> Fingerprints"** device, linked to the lock's own device, carrying:
+An admin key also gets, on the lock's device:
 
 | Entity | Domain | Purpose |
 |---|---|---|
-| Count | `sensor` | How many fingerprints the lock lists (diagnostic). `unknown` until a session has carried a read. |
-| Refresh | `button` | Reads the list now instead of on the next session. No advertisement or push event tells a fingerprint change apart from any other record, so the list is otherwise read at most every 30 minutes, on a session opened for something else. Fails with an error when the lock cannot be reached. |
+| Enrolled fingerprints | `sensor` | How many fingerprints the lock lists (diagnostic). `unknown` until a session has carried a read. |
+| Refresh fingerprints | `button` | Reads the list now instead of on the next session. No advertisement or push event tells a fingerprint change apart from any other record, so the list is otherwise read at most every 30 minutes, on a session opened for something else. Fails with an error when the lock cannot be reached. |
+| Fingerprint \<number\> | `text` | One per enrolled fingerprint, named by the number the official app shows for it. Its value is the name of the person it belongs to, empty until set, and becomes the `credential_name` of that fingerprint's log events. |
 
-Every enrolled fingerprint gets a device of its own, nested under the Fingerprints device and named by the number the official app shows for it. Its single `sensor` carries that same number (diagnostic). Rename the device to label whose fingerprint it is — that name becomes the `credential_name` of its log events. The device, its name and its entity survive restarts, and they are removed when the lock no longer lists the fingerprint. The list says nothing about cyclic (day-of-week or time-range) restrictions, so a fingerprint shown here may still be limited to certain days or hours.
+The list and the names are kept across restarts, and a fingerprint the lock no longer lists loses its entity and its name. The list says nothing about cyclic (day-of-week or time-range) restrictions, so a fingerprint shown here may still be limited to certain days or hours.
 
 ## Installation
 
@@ -139,7 +152,8 @@ custom_components/ttlock_ble/
 ├── button.py          # TtlockBleRefreshFingerprintsButton: force a fingerprint read (admin keys only)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
-├── credential_namer.py  # TtlockBleCredentialNamer: whose credential a log record was
+├── credential_resolver.py  # TtlockBleCredentialResolver: type, identifier and name behind a log record
+├── credential_type.py      # TtlockBleCredentialType: the credential each record type names
 ├── const.py           # DOMAIN, LOGGER, defaults
 ├── coordinator.py     # DataUpdateCoordinator polling each connection
 ├── data/              # one TypedDict/dataclass per file + type aliases in __init__.py
@@ -148,18 +162,17 @@ custom_components/ttlock_ble/
 ├── entity.py          # base CoordinatorEntity with DeviceInfo
 ├── event.py           # TtlockBleLogEvent: operation-log records as HA events
 ├── exceptions/        # one file per exception class
-├── fingerprint_entity.py       # base entity on one fingerprint's child device
-├── fingerprint_identifiers.py  # device identifiers of the lock, fingerprints device and fingerprints
-├── fingerprint_tracker.py      # one entity per enrolled fingerprint, restored and pruned
-├── fingerprints_hub_entity.py  # base entity on the lock's Fingerprints device
+├── fingerprint_store.py    # persisted fingerprint list and names per lock
+├── fingerprint_tracker.py  # one entity per enrolled fingerprint, restored and pruned
 ├── lock.py            # TtlockBleLock: LockEntity backed by the connection
 ├── manifest.json
 ├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── options_flow.py    # TtlockBleOptionsFlow: permanent_connection
 ├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
-├── sensor.py          # battery, last-seen, clock-drift, fingerprint count/number sensors
+├── sensor.py          # battery, last-seen, clock-drift, fingerprint count, last-unlocked-by sensors
 ├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
+├── text.py            # TtlockBleFingerprintNameText: whose each fingerprint is (admin keys only)
 └── translations/
     ├── en.json
     ├── he.json

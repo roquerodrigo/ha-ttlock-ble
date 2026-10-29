@@ -121,11 +121,6 @@
       }
     }
   },
-  "device": {
-    "fingerprints": {
-      "name": "{lock} Digitais"
-    }
-  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -137,7 +132,7 @@
     },
     "button": {
       "refresh_fingerprints": {
-        "name": "Atualizar"
+        "name": "Atualizar digitais"
       }
     },
     "event": {
@@ -169,18 +164,23 @@
         "name": "Desvio do relógio"
       },
       "fingerprint_count": {
-        "name": "Quantidade"
-      },
-      "fingerprint_number": {
-        "name": "Número"
+        "name": "Digitais cadastradas"
       },
       "last_seen": {
         "name": "Visto por último"
+      },
+      "last_unlocked_by": {
+        "name": "Último desbloqueio por"
       }
     },
     "switch": {
       "sound": {
         "name": "Som"
+      }
+    },
+    "text": {
+      "fingerprint_name": {
+        "name": "Digital {number}"
       }
     }
   },

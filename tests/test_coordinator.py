@@ -18,9 +18,11 @@ from custom_components.ttlock_ble.coordinator import (
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
 )
+from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
 from custom_components.ttlock_ble.device_description_store import (
     TtlockBleDeviceDescriptionStore,
 )
+from custom_components.ttlock_ble.fingerprint_store import TtlockBleFingerprintStore
 
 
 def test_parse_lock_state_locked() -> None:
@@ -55,7 +57,12 @@ def _coordinator(hass, connections, descriptions=None, clock_syncs=None):
         connections=connections,
         descriptions=descriptions or TtlockBleDeviceDescriptionStore(hass),
         clock_syncs=clock_syncs or TtlockBleClockSyncStore(hass),
+        fingerprints=TtlockBleFingerprintStore(hass),
     )
+
+
+def _enrolled(entries: list[FingerprintEntry]) -> list[TtlockBleEnrolledFingerprint]:
+    return [TtlockBleEnrolledFingerprint.from_entry(entry) for entry in entries]
 
 
 async def test_poll_keeps_state_when_log_read_fails(hass) -> None:
@@ -890,7 +897,7 @@ async def test_a_poll_reads_the_fingerprints(hass) -> None:
     await coordinator._async_update_data()
 
     conn.async_get_fingerprints.assert_awaited_once()
-    assert coordinator.async_fingerprints(MAC) == entries
+    assert coordinator.async_fingerprints(MAC) == _enrolled(entries)
 
 
 async def test_the_fingerprint_read_tells_the_entities(hass) -> None:
@@ -946,7 +953,7 @@ async def test_a_fingerprint_read_that_did_not_land_is_tried_on_the_next_session
     assert coordinator.async_fingerprints(MAC) is None
 
     await coordinator._async_update_data()
-    assert coordinator.async_fingerprints(MAC) == entries
+    assert coordinator.async_fingerprints(MAC) == _enrolled(entries)
 
 
 async def test_a_key_that_cannot_administer_is_never_asked_for_fingerprints(

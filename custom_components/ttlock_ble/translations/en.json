@@ -121,11 +121,6 @@
       }
     }
   },
-  "device": {
-    "fingerprints": {
-      "name": "{lock} Fingerprints"
-    }
-  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -137,7 +132,7 @@
     },
     "button": {
       "refresh_fingerprints": {
-        "name": "Refresh"
+        "name": "Refresh fingerprints"
       }
     },
     "event": {
@@ -169,18 +164,23 @@
         "name": "Clock drift"
       },
       "fingerprint_count": {
-        "name": "Count"
-      },
-      "fingerprint_number": {
-        "name": "Number"
+        "name": "Enrolled fingerprints"
       },
       "last_seen": {
         "name": "Last seen"
+      },
+      "last_unlocked_by": {
+        "name": "Last unlocked by"
       }
     },
     "switch": {
       "sound": {
         "name": "Sound"
+      }
+    },
+    "text": {
+      "fingerprint_name": {
+        "name": "Fingerprint {number}"
       }
     }
   },

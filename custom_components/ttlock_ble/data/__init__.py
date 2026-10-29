@@ -19,8 +19,10 @@ from .diagnostics_entry import TtlockBleDiagnosticsEntry
 from .diagnostics_lock_summary import TtlockBleDiagnosticsLockSummary
 from .diagnostics_payload import TtlockBleDiagnosticsPayload
 from .enrolled_fingerprint import TtlockBleEnrolledFingerprint
+from .last_unlock_attributes import TtlockBleLastUnlockAttributes
 from .lock_event_attributes import TtlockBleLogEventAttributes
 from .lock_state import TtlockBleLockState
+from .log_credential import TtlockBleLogCredential
 from .log_cursor import TtlockBleLogCursor
 from .manual_key_input import TtlockBleManualKeyInput
 from .options_data import TtlockBleOptionsData
@@ -50,7 +52,9 @@ __all__ = [
     "TtlockBleDiagnosticsLockSummary",
     "TtlockBleDiagnosticsPayload",
     "TtlockBleEnrolledFingerprint",
+    "TtlockBleLastUnlockAttributes",
     "TtlockBleLockState",
+    "TtlockBleLogCredential",
     "TtlockBleLogCursor",
     "TtlockBleLogEventAttributes",
     "TtlockBleManualKeyInput",

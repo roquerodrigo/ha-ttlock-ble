@@ -121,11 +121,6 @@
       }
     }
   },
-  "device": {
-    "fingerprints": {
-      "name": "{lock} טביעות אצבע"
-    }
-  },
   "entity": {
     "binary_sensor": {
       "connection": {
@@ -137,7 +132,7 @@
     },
     "button": {
       "refresh_fingerprints": {
-        "name": "רענון"
+        "name": "רענון טביעות אצבע"
       }
     },
     "event": {
@@ -169,18 +164,23 @@
         "name": "סטיית שעון"
       },
       "fingerprint_count": {
-        "name": "כמות"
-      },
-      "fingerprint_number": {
-        "name": "מספר"
+        "name": "טביעות אצבע רשומות"
       },
       "last_seen": {
         "name": "נראה לאחרונה"
+      },
+      "last_unlocked_by": {
+        "name": "נפתח לאחרונה על ידי"
       }
     },
     "switch": {
       "sound": {
         "name": "צליל"
+      }
+    },
+    "text": {
+      "fingerprint_name": {
+        "name": "טביעת אצבע {number}"
       }
     }
   },
