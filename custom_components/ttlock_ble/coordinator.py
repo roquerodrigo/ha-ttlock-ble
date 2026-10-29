@@ -32,6 +32,7 @@ from homeassistant.util import dt as dt_util
 from ttlock_ble import LockState
 
 from .const import DOMAIN, LOGGER
+from .data import TtlockBleEnrolledFingerprint
 from .key_privileges import can_administer
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
-    from ttlock_ble import FingerprintEntry, LockAdvertisement
+    from ttlock_ble import LockAdvertisement
 
     from .clock_sync_store import TtlockBleClockSyncStore
     from .connection import TtlockBleConnection
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
         TtlockBleLockState,
     )
     from .device_description_store import TtlockBleDeviceDescriptionStore
+    from .fingerprint_store import TtlockBleFingerprintStore
 
 
 LOCK_STATE_LOCKED = 0
@@ -106,6 +108,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         connections: dict[str, TtlockBleConnection],
         descriptions: TtlockBleDeviceDescriptionStore,
         clock_syncs: TtlockBleClockSyncStore,
+        fingerprints: TtlockBleFingerprintStore,
     ) -> None:
         """
         Pin the per-MAC connection map. No polling interval on purpose.
@@ -121,10 +124,10 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._connections = connections
         self._descriptions = descriptions
         self._clock_syncs = clock_syncs
+        self._fingerprints = fingerprints
         self._described: set[str] = set()
         self._sound_enabled: dict[str, bool] = {}
         self._sound_checked_at: dict[str, float] = {}
-        self._fingerprints: dict[str, list[FingerprintEntry]] = {}
         self._fingerprints_checked_at: dict[str, float] = {}
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
@@ -173,9 +176,9 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         return self._sound_enabled.get(mac)
 
     @callback
-    def async_fingerprints(self, mac: str) -> list[FingerprintEntry] | None:
-        """Return the last-read fingerprint list for `mac`, if any."""
-        return self._fingerprints.get(mac)
+    def async_fingerprints(self, mac: str) -> list[TtlockBleEnrolledFingerprint] | None:
+        """Return the fingerprints `mac` last listed, if a list was ever read."""
+        return self._fingerprints.enrolled(mac)
 
     @callback
     def async_note_sound_enabled(self, mac: str, *, enabled: bool) -> None:
@@ -613,7 +616,9 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             return False
         self._fingerprints_checked_at[mac] = self.hass.loop.time()
         LOGGER.debug("Fingerprints of %s: %d enrolled", mac, len(fingerprints))
-        self._fingerprints[mac] = fingerprints
+        self._fingerprints.async_replace(
+            mac, {TtlockBleEnrolledFingerprint.from_entry(e) for e in fingerprints}
+        )
         self.async_update_listeners()
         return True
 

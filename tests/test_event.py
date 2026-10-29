@@ -96,7 +96,9 @@ async def test_log_event_redacts_every_passcode_record_type(
     sample_virtual_key,
 ) -> None:
     """No record type that carries a working door code may publish it."""
-    from custom_components.ttlock_ble.event import PASSCODE_RECORD_TYPES
+    from custom_components.ttlock_ble.credential_resolver import (
+        PASSCODE_RECORD_TYPES,
+    )
 
     for index, record_type in enumerate(sorted(PASSCODE_RECORD_TYPES)):
         entry = LogEntry(
@@ -206,32 +208,26 @@ def test_a_passcode_carrying_record_never_leaks_its_code() -> None:
     """Newly classified types must not have widened what reaches an attribute."""
     from ttlock_ble import LogOperate
 
-    from custom_components.ttlock_ble.event import (
+    from custom_components.ttlock_ble.credential_resolver import (
         PASSCODE_RECORD_TYPES,
-        UNLOCK_RECORD_TYPES,
     )
+    from custom_components.ttlock_ble.event import UNLOCK_RECORD_TYPES
 
     assert LogOperate.ADMIN_CODE_UNLOCK in PASSCODE_RECORD_TYPES
     assert LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK in PASSCODE_RECORD_TYPES
     assert LogOperate.ADMIN_CODE_UNLOCK in UNLOCK_RECORD_TYPES
 
 
-def _fingerprint_entry(id_byte: int, slot: int):
-    from ttlock_ble import FingerprintEntry
-
-    return FingerprintEntry(
-        fingerprint_id=bytes([0x00, 0x00, 0x00, id_byte]),
-        slot=slot,
-        start_date=None,
-        end_date=None,
+async def _name_fingerprint(hass, mac, number: int, name: str) -> None:
+    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+    from custom_components.ttlock_ble.fingerprint_store import (
+        async_get_fingerprint_store,
     )
 
-
-async def _enroll(hass, entry, fingerprints) -> None:
-    coordinator = entry.runtime_data.coordinator
-    coordinator._fingerprints[entry.runtime_data.virtual_keys[0].lockMac] = fingerprints
-    coordinator.async_update_listeners()
-    await hass.async_block_till_done()
+    fingerprint = TtlockBleEnrolledFingerprint.from_number(number)
+    store = await async_get_fingerprint_store(hass)
+    store.async_replace(mac, {fingerprint})
+    store.async_set_name(mac, fingerprint, name)
 
 
 async def _fire(hass, mac, **fields) -> dict:
@@ -241,10 +237,10 @@ async def _fire(hass, mac, **fields) -> dict:
     return _log_state(hass).attributes
 
 
-async def test_a_fingerprint_record_is_named_after_its_device(
+async def test_a_named_fingerprint_names_the_record(
     hass, setup_integration, sample_virtual_key
 ) -> None:
-    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
+    await _name_fingerprint(hass, sample_virtual_key.lockMac, 2752513, "Thumb")
 
     attributes = await _fire(
         hass,
@@ -253,42 +249,33 @@ async def test_a_fingerprint_record_is_named_after_its_device(
         password="2752513",
     )
 
+    assert attributes["credential_type"] == "fingerprint"
     assert attributes["credential"] == "2752513"
-    assert attributes["credential_name"] == "2752513"
-
-
-async def test_a_renamed_fingerprint_names_the_record(
-    hass, setup_integration, sample_virtual_key
-) -> None:
-    from homeassistant.helpers import device_registry as dr
-    from homeassistant.helpers.device_registry import format_mac
-
-    from custom_components.ttlock_ble.const import DOMAIN
-
-    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
-    registry = dr.async_get(hass)
-    device = registry.async_get_child_device_by_identifier(
-        (DOMAIN, f"{format_mac(sample_virtual_key.lockMac)}_fingerprint_0000002a_1"),
-        setup_integration.entry_id,
-    )
-    assert device is not None
-    registry.async_update_child_device(device.id, name_by_user="Thumb")
-
-    attributes = await _fire(
-        hass,
-        sample_virtual_key.lockMac,
-        record_type=LogOperate.FR_UNLOCK_SUCCEED,
-        password="2752513",
-    )
-
     assert attributes["credential_name"] == "Thumb"
 
 
+async def test_an_unnamed_fingerprint_carries_its_number_only(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    await _name_fingerprint(hass, sample_virtual_key.lockMac, 2752513, "")
+
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    assert attributes["credential_type"] == "fingerprint"
+    assert attributes["credential"] == "2752513"
+    assert "credential_name" not in attributes
+
+
 @pytest.mark.parametrize("password", ["2818050", "not-a-number", str(1 << 48), None])
-async def test_a_fingerprint_record_without_a_device_has_no_name(
+async def test_a_fingerprint_record_nobody_named_has_no_name(
     hass, setup_integration, sample_virtual_key, password
 ) -> None:
-    await _enroll(hass, setup_integration, [_fingerprint_entry(0x2A, 1)])
+    await _name_fingerprint(hass, sample_virtual_key.lockMac, 2752513, "Thumb")
 
     attributes = await _fire(
         hass,
@@ -300,6 +287,61 @@ async def test_a_fingerprint_record_without_a_device_has_no_name(
     assert "credential_name" not in attributes
 
 
+async def test_a_fingerprint_named_on_another_lock_does_not_name_the_record(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    await _name_fingerprint(hass, "11:22:33:44:55:66", 2752513, "Thumb")
+
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.FR_UNLOCK_SUCCEED,
+        password="2752513",
+    )
+
+    assert "credential_name" not in attributes
+
+
+async def test_a_card_record_carries_its_type_and_number(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.IC_UNLOCK_SUCCEED,
+        password="3819472054",
+    )
+
+    assert attributes["credential_type"] == "card"
+    assert attributes["credential"] == "3819472054"
+    assert "credential_name" not in attributes
+
+
+async def test_a_passcode_record_carries_its_type_but_never_the_code(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    attributes = await _fire(
+        hass,
+        sample_virtual_key.lockMac,
+        record_type=LogOperate.KEYBOARD_PASSWORD_UNLOCK,
+        password="998877",
+    )
+
+    assert attributes["credential_type"] == "passcode"
+    assert "credential" not in attributes
+    assert "credential_name" not in attributes
+
+
+async def test_a_record_with_no_credential_has_no_type(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    attributes = await _fire(
+        hass, sample_virtual_key.lockMac, record_type=LogOperate.DOOR_REBOOT
+    )
+
+    assert "credential_type" not in attributes
+
+
 async def test_a_command_from_home_assistant_is_named_so(
     hass, setup_integration, sample_virtual_key
 ) -> None:
@@ -307,6 +349,7 @@ async def test_a_command_from_home_assistant_is_named_so(
         hass, sample_virtual_key.lockMac, record_type=LogOperate.MOBILE_UNLOCK, uid=0
     )
 
+    assert attributes["credential_type"] == "app"
     assert attributes["credential_name"] == "Home Assistant"
 
 

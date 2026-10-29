@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from homeassistant.helpers.device_registry import (
     CONNECTION_BLUETOOTH,
-    ChildDeviceInfo,
     DeviceInfo,
     format_mac,
 )
@@ -37,7 +36,7 @@ class TtlockBleEntity(CoordinatorEntity[TtlockBleDataUpdateCoordinator]):
         self._key = key
 
     @property
-    def device_info(self) -> DeviceInfo | ChildDeviceInfo:
+    def device_info(self) -> DeviceInfo:
         """
         One Home Assistant device per physical lock, keyed by MAC.
 

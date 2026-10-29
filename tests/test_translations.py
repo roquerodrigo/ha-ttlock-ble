@@ -77,28 +77,24 @@ async def test_entity_translation_keys_and_authored_names_agree(
     either — a key missing from both sides matches, and the entity falls
     back to its device-class name while the authored one never shows.
 
-    The fingerprint-number sensor is created dynamically and does not
-    exist under a bare setup with nothing discovered yet, so one fingerprint is
+    The fingerprint-name text is created dynamically and does not exist
+    under a bare setup with nothing read yet, so one fingerprint is
     pushed through the coordinator first - otherwise its authored key
     would look unused by every check that runs before any lock is polled.
     """
     from homeassistant.helpers import entity_registry as er
     from homeassistant.helpers.dispatcher import async_dispatcher_send
-    from ttlock_ble import FingerprintEntry, LogEntry, LogOperate
+    from ttlock_ble import LogEntry, LogOperate
 
     from custom_components.ttlock_ble.connection import log_signal
+    from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
 
-    setup_integration.runtime_data.coordinator._fingerprints[
-        sample_virtual_key.lockMac
-    ] = [
-        FingerprintEntry(
-            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
-            slot=1,
-            start_date=None,
-            end_date=None,
-        )
-    ]
-    setup_integration.runtime_data.coordinator.async_update_listeners()
+    coordinator = setup_integration.runtime_data.coordinator
+    coordinator._fingerprints.async_replace(
+        sample_virtual_key.lockMac,
+        {TtlockBleEnrolledFingerprint(fingerprint_id=bytes(4), slot=1)},
+    )
+    coordinator.async_update_listeners()
     await hass.async_block_till_done()
 
     # The door sensor only exists once its lock has reported a door record.

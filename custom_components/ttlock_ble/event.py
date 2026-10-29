@@ -17,15 +17,17 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from ttlock_ble import LogOperate
 
 from .connection import log_signal
-from .credential_namer import TtlockBleCredentialNamer
+from .credential_resolver import TtlockBleCredentialResolver
 from .entity import TtlockBleEntity
+from .fingerprint_store import async_get_fingerprint_store
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ttlock_ble import LogEntry
+    from ttlock_ble import LogEntry, VirtualKey
 
+    from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry, TtlockBleLogEventAttributes
 
 
@@ -37,41 +39,17 @@ LOG_EVENT_TYPES: list[str] = [
     "other",
 ]
 
-# Record types whose `password` field is a working door code rather than an
-# identifier. The SDK reuses one field for keypad codes, card numbers,
-# fingerprint ids and fob MACs; only the first are secret, and an HA event
-# attribute lands in the recorder database and is readable through the API
-# by any user, so those never leave this module.
-PASSCODE_RECORD_TYPES: frozenset[int] = frozenset(
-    {
-        LogOperate.KEYBOARD_PASSWORD_UNLOCK,
-        LogOperate.KEYBOARD_MODIFY_PASSWORD,
-        LogOperate.KEYBOARD_REMOVE_SINGLE_PASSWORD,
-        LogOperate.ERROR_PASSWORD_UNLOCK,
-        LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS,
-        LogOperate.KEYBOARD_PASSWORD_KICKED,
-        LogOperate.USE_DELETE_CODE,
-        LogOperate.PASSCODE_EXPIRED,
-        LogOperate.SPACE_INSUFFICIENT,
-        LogOperate.PASSCODE_IN_BLACK_LIST,
-        LogOperate.PASSCODE_LOCK,
-        LogOperate.PASSCODE_UNLOCK_FAILED_LOCK_REVERSE,
-        LogOperate.DOUBLE_CHECK_PASSCODE_UNLOCK,
-        LogOperate.ADMIN_CODE_UNLOCK,
-        LogOperate.ADD_PASSCODE_SUCCESSFULLY,
-    },
-)
-
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Create log-event entities per `VirtualKey`."""
     data = entry.runtime_data
+    resolver = TtlockBleCredentialResolver(await async_get_fingerprint_store(hass))
     async_add_entities(
-        TtlockBleLogEvent(data.coordinator, key) for key in data.virtual_keys
+        TtlockBleLogEvent(data.coordinator, key, resolver) for key in data.virtual_keys
     )
 
 
@@ -240,6 +218,16 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
     _attr_translation_key = "log"
     _attr_event_types = LOG_EVENT_TYPES
 
+    def __init__(
+        self,
+        coordinator: TtlockBleDataUpdateCoordinator,
+        key: VirtualKey,
+        resolver: TtlockBleCredentialResolver,
+    ) -> None:
+        """Bind to the lock and to what names the credentials of its records."""
+        super().__init__(coordinator, key)
+        self._resolver = resolver
+
     @property
     def unique_id(self) -> str:
         """Return a stable unique id for this entity."""
@@ -268,15 +256,13 @@ class TtlockBleLogEvent(TtlockBleEntity, EventEntity):
             attributes["timestamp"] = entry.operate_date.isoformat()
         if entry.uid is not None:
             attributes["uid"] = entry.uid
-        if entry.password is not None and entry.record_type not in (
-            PASSCODE_RECORD_TYPES
-        ):
-            attributes["credential"] = entry.password
-        credential_name = TtlockBleCredentialNamer(
-            self.hass, self.coordinator.config_entry.entry_id
-        ).name_of(self._key.lockMac, entry)
-        if credential_name is not None:
-            attributes["credential_name"] = credential_name
+        credential = self._resolver.resolve(self._key.lockMac, entry)
+        if credential.credential_type is not None:
+            attributes["credential_type"] = credential.credential_type.value
+        if credential.identifier is not None:
+            attributes["credential"] = credential.identifier
+        if credential.name is not None:
+            attributes["credential_name"] = credential.name
         if entry.key_id is not None:
             attributes["key_id"] = entry.key_id
         if entry.accessory_battery is not None:

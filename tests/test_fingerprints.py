@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import format_mac
@@ -7,9 +9,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from ttlock_ble import FingerprintEntry
 
 from custom_components.ttlock_ble.const import DOMAIN
+from custom_components.ttlock_ble.data import TtlockBleEnrolledFingerprint
+from custom_components.ttlock_ble.fingerprint_store import async_get_fingerprint_store
 
 MAC = "AA:BB:CC:DD:EE:FF"
-HUB_IDENTIFIER = (DOMAIN, f"{format_mac(MAC)}_fingerprints")
 
 
 def _fingerprint(id_byte: int, slot: int) -> FingerprintEntry:
@@ -21,46 +24,58 @@ def _fingerprint(id_byte: int, slot: int) -> FingerprintEntry:
     )
 
 
-def _fingerprint_identifier(id_byte: int, slot: int) -> tuple[str, str]:
-    return (DOMAIN, f"{format_mac(MAC)}_fingerprint_000000{id_byte:02x}_{slot}")
+async def _read(hass, entry, connection, fingerprints) -> None:
+    """Have the lock answer `fingerprints` to a read the coordinator makes."""
+    connection.async_get_fingerprints = AsyncMock(return_value=fingerprints)
+    assert await entry.runtime_data.coordinator.async_refresh_fingerprints(MAC)
+    await hass.async_block_till_done()
 
 
-def _read(hass, entry, fingerprints) -> None:
-    """Make the coordinator hand out `fingerprints` as a list just read."""
-    coordinator = entry.runtime_data.coordinator
-    coordinator._fingerprints[MAC] = fingerprints
-    coordinator.async_update_listeners()
-
-
-def _registry_entries(hass, translation_key: str) -> list[er.RegistryEntry]:
+def _name_entries(hass) -> list[er.RegistryEntry]:
     return [
         entry
         for entry in er.async_get(hass).entities.values()
-        if entry.platform == DOMAIN and entry.translation_key == translation_key
+        if entry.platform == DOMAIN and entry.translation_key == "fingerprint_name"
     ]
 
 
-def _number_states(hass) -> dict[str, str]:
-    """Every fingerprint-number sensor, by unique id, with its live state."""
+def _name_states(hass) -> dict[str, str]:
+    """Every fingerprint-name text, by its friendly name, with its value."""
     return {
-        entry.unique_id: hass.states.get(entry.entity_id).state
-        for entry in _registry_entries(hass, "fingerprint_number")
+        state.attributes["friendly_name"]: state.state
+        for state in (hass.states.get(entry.entity_id) for entry in _name_entries(hass))
+        if state is not None
     }
 
 
 def _count_state(hass) -> str:
-    entry = _registry_entries(hass, "fingerprint_count")[0]
+    (entry,) = (
+        entry
+        for entry in er.async_get(hass).entities.values()
+        if entry.platform == DOMAIN and entry.translation_key == "fingerprint_count"
+    )
     return hass.states.get(entry.entity_id).state
 
 
-def _child_devices(hass, entry) -> list[dr.ChildDeviceEntry]:
-    registry = dr.async_get(hass)
-    hub = registry.async_get_device_by_identifier(HUB_IDENTIFIER, entry.entry_id)
-    assert hub is not None
-    return dr.async_entries_for_parent_device(registry, hub.id)
+async def _set_name(hass, friendly_name: str, value: str) -> None:
+    (entity_id,) = (
+        entry.entity_id
+        for entry in _name_entries(hass)
+        if hass.states.get(entry.entity_id).attributes["friendly_name"] == friendly_name
+    )
+    await hass.services.async_call(
+        "text", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
+    )
 
 
-async def _setup_non_admin_entry(hass, sample_stored_key) -> MockConfigEntry:
+async def test_a_key_that_cannot_administer_gets_no_fingerprint_entities(
+    hass,
+    sample_stored_key,
+    enable_bluetooth,
+    enable_custom_integrations,
+    mock_cloud,
+    mock_ttlock_connection,
+) -> None:
     key = dict(sample_stored_key)
     key["userType"] = "110302"
     entry = MockConfigEntry(
@@ -69,173 +84,160 @@ async def _setup_non_admin_entry(hass, sample_stored_key) -> MockConfigEntry:
         unique_id="u",
     )
     entry.add_to_hass(hass)
+    store = await async_get_fingerprint_store(hass)
+    store.async_replace(
+        MAC, {TtlockBleEnrolledFingerprint(fingerprint_id=bytes(4), slot=1)}
+    )
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return entry
 
-
-async def test_an_admin_key_gets_a_fingerprints_device(hass, setup_integration) -> None:
-    registry = dr.async_get(hass)
-    lock = registry.async_get_device_by_identifier(
-        (DOMAIN, format_mac(MAC)), setup_integration.entry_id
+    assert _name_entries(hass) == []
+    assert not any(
+        entry.translation_key == "fingerprint_count"
+        for entry in er.async_get(hass).entities.values()
     )
-    hub = registry.async_get_device_by_identifier(
-        HUB_IDENTIFIER, setup_integration.entry_id
-    )
-
-    assert lock is not None
-    assert hub is not None
-    assert hub.via_device_id == lock.id
-    assert hub.name == "Front door Fingerprints"
-
-
-async def test_a_key_that_cannot_administer_gets_no_fingerprints_device(
-    hass,
-    sample_stored_key,
-    enable_bluetooth,
-    enable_custom_integrations,
-    mock_cloud,
-    mock_ttlock_connection,
-) -> None:
-    entry = await _setup_non_admin_entry(hass, sample_stored_key)
-
-    assert (
-        dr.async_get(hass).async_get_device_by_identifier(
-            HUB_IDENTIFIER, entry.entry_id
-        )
-        is None
-    )
-    assert _registry_entries(hass, "fingerprint_count") == []
 
 
 async def test_the_count_is_unknown_before_any_read(hass, setup_integration) -> None:
     assert _count_state(hass) == "unknown"
-    assert _number_states(hass) == {}
+    assert _name_states(hass) == {}
 
 
-async def test_a_read_creates_one_sensor_per_fingerprint(
-    hass, setup_integration
+async def test_a_read_creates_one_unnamed_text_per_fingerprint(
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)])
-    await hass.async_block_till_done()
+    await _read(
+        hass,
+        setup_integration,
+        mock_ttlock_connection,
+        [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)],
+    )
 
     assert _count_state(hass) == "2"
-    assert _number_states(hass) == {
-        f"{MAC}_fingerprint_0000002a_1": "2752513",
-        f"{MAC}_fingerprint_0000002b_2": "2818050",
+    assert _name_states(hass) == {
+        "Front door Fingerprint 2752513": "",
+        "Front door Fingerprint 2818050": "",
     }
 
 
-async def test_a_fingerprint_sensor_is_diagnostic(hass, setup_integration) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
-
-    entry = _registry_entries(hass, "fingerprint_number")[0]
-    assert entry.entity_category == er.EntityCategory.DIAGNOSTIC
-
-
-async def test_each_fingerprint_is_a_child_of_the_fingerprints_device(
-    hass, setup_integration
+async def test_a_fingerprint_text_is_configuration_on_the_lock_device(
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
 
-    (child,) = _child_devices(hass, setup_integration)
-    assert child.identifiers == {_fingerprint_identifier(0x2A, 1)}
-    assert child.name == "2752513"
-    entry = _registry_entries(hass, "fingerprint_number")[0]
-    assert entry.device_id == child.id
-
-
-async def test_the_same_list_read_again_adds_nothing(hass, setup_integration) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
-
-    assert len(_number_states(hass)) == 1
-    assert len(_child_devices(hass, setup_integration)) == 1
+    (entry,) = _name_entries(hass)
+    lock = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, format_mac(MAC)), setup_integration.entry_id
+    )
+    assert lock is not None
+    assert entry.device_id == lock.id
+    assert entry.entity_category == er.EntityCategory.CONFIG
+    assert entry.unique_id == f"{MAC}_fingerprint_0000002a_1"
 
 
-async def test_a_new_fingerprint_is_added_next_to_the_known_ones(
-    hass, setup_integration
+async def test_naming_a_fingerprint_stores_the_name(
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)])
-    await hass.async_block_till_done()
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
 
-    assert set(_number_states(hass).values()) == {"2752513", "2818050"}
+    await _set_name(hass, "Front door Fingerprint 2752513", "Alice")
+
+    assert _name_states(hass) == {"Front door Fingerprint 2752513": "Alice"}
+    store = await async_get_fingerprint_store(hass)
+    fingerprint = TtlockBleEnrolledFingerprint.from_entry(_fingerprint(0x2A, 1))
+    assert store.name_of(MAC, fingerprint) == "Alice"
 
 
-async def test_a_deleted_fingerprint_loses_its_device_and_sensor(
-    hass, setup_integration
+async def test_the_same_list_read_again_adds_nothing(
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)])
-    await hass.async_block_till_done()
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
+
+    assert len(_name_entries(hass)) == 1
+
+
+async def test_a_new_fingerprint_is_added_next_to_the_named_ones(
+    hass, setup_integration, mock_ttlock_connection
+) -> None:
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
+    await _set_name(hass, "Front door Fingerprint 2752513", "Alice")
+    await _read(
+        hass,
+        setup_integration,
+        mock_ttlock_connection,
+        [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)],
+    )
+
+    assert _name_states(hass) == {
+        "Front door Fingerprint 2752513": "Alice",
+        "Front door Fingerprint 2818050": "",
+    }
+
+
+async def test_a_deleted_fingerprint_loses_its_text_and_its_name(
+    hass, setup_integration, mock_ttlock_connection
+) -> None:
+    await _read(
+        hass,
+        setup_integration,
+        mock_ttlock_connection,
+        [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)],
+    )
+    await _set_name(hass, "Front door Fingerprint 2818050", "Bob")
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
 
     assert _count_state(hass) == "1"
-    assert _number_states(hass) == {f"{MAC}_fingerprint_0000002a_1": "2752513"}
-    assert [child.name for child in _child_devices(hass, setup_integration)] == [
-        "2752513"
-    ]
+    assert _name_states(hass) == {"Front door Fingerprint 2752513": ""}
+    store = await async_get_fingerprint_store(hass)
+    fingerprint = TtlockBleEnrolledFingerprint.from_entry(_fingerprint(0x2B, 2))
+    assert store.name_of(MAC, fingerprint) is None
 
 
-async def test_a_reload_keeps_the_fingerprint_devices_and_their_names(
-    hass, setup_integration
+async def test_a_reload_brings_the_fingerprints_back_with_their_names(
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1)])
-    await hass.async_block_till_done()
-    registry = dr.async_get(hass)
-    (child,) = _child_devices(hass, setup_integration)
-    registry.async_update_child_device(child.id, name_by_user="Thumb")
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2A, 1)]
+    )
+    await _set_name(hass, "Front door Fingerprint 2752513", "Alice")
+    (before,) = _name_entries(hass)
 
     await hass.config_entries.async_reload(setup_integration.entry_id)
     await hass.async_block_till_done()
 
-    (restored,) = _child_devices(hass, setup_integration)
-    assert restored.id == child.id
-    assert restored.name_by_user == "Thumb"
-    assert _number_states(hass) == {f"{MAC}_fingerprint_0000002a_1": "2752513"}
+    (after,) = _name_entries(hass)
+    assert after.entity_id == before.entity_id
+    assert _name_states(hass) == {"Front door Fingerprint 2752513": "Alice"}
+    assert _count_state(hass) == "1"
 
 
 async def test_a_fingerprint_deleted_while_unloaded_goes_on_the_first_read(
-    hass, setup_integration
+    hass, setup_integration, mock_ttlock_connection
 ) -> None:
-    _read(hass, setup_integration, [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)])
-    await hass.async_block_till_done()
+    await _read(
+        hass,
+        setup_integration,
+        mock_ttlock_connection,
+        [_fingerprint(0x2A, 1), _fingerprint(0x2B, 2)],
+    )
     await hass.config_entries.async_reload(setup_integration.entry_id)
     await hass.async_block_till_done()
 
-    _read(hass, setup_integration, [_fingerprint(0x2B, 2)])
-    await hass.async_block_till_done()
-
-    assert _number_states(hass) == {f"{MAC}_fingerprint_0000002b_2": "2818050"}
-
-
-async def test_a_child_device_that_is_no_fingerprint_is_left_alone(
-    hass, setup_integration
-) -> None:
-    registry = dr.async_get(hass)
-    hub = registry.async_get_device_by_identifier(
-        HUB_IDENTIFIER, setup_integration.entry_id
-    )
-    assert hub is not None
-    registry.async_get_or_create_child(
-        config_entry_id=setup_integration.entry_id,
-        parent_device_id=hub.id,
-        identifiers={(DOMAIN, f"{format_mac(MAC)}_fingerprint_not-hex_1")},
-    )
-    registry.async_get_or_create_child(
-        config_entry_id=setup_integration.entry_id,
-        parent_device_id=hub.id,
-        identifiers={(DOMAIN, "something_else")},
+    await _read(
+        hass, setup_integration, mock_ttlock_connection, [_fingerprint(0x2B, 2)]
     )
 
-    await hass.config_entries.async_reload(setup_integration.entry_id)
-    await hass.async_block_till_done()
-
-    assert _number_states(hass) == {}
-    assert len(_child_devices(hass, setup_integration)) == 2
+    assert _name_states(hass) == {"Front door Fingerprint 2818050": ""}

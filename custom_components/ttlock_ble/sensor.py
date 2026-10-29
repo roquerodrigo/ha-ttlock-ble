@@ -1,4 +1,4 @@
-"""Sensor platform for ttlock_ble — battery, contact, clock drift, fingerprints."""
+"""Sensor platform for ttlock_ble — lock health, fingerprints and the last unlock."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from homeassistant.components.bluetooth import (
     async_last_service_info,
 )
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -20,11 +21,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .connection import event_signal
+from ttlock_ble import LogOperate
+
+from .connection import event_signal, log_signal
+from .credential_resolver import TtlockBleCredentialResolver
 from .entity import TtlockBleEntity
-from .fingerprint_entity import TtlockBleFingerprintEntity
-from .fingerprint_tracker import TtlockBleFingerprintTracker
-from .fingerprints_hub_entity import TtlockBleFingerprintsHubEntity
+from .event import UNLOCK_RECORD_TYPES
+from .fingerprint_store import async_get_fingerprint_store
 from .key_privileges import can_administer
 
 if TYPE_CHECKING:
@@ -33,14 +36,21 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ttlock_ble import LockEvent, VirtualKey
+    from ttlock_ble import LockEvent, LogEntry, VirtualKey
 
     from .coordinator import TtlockBleDataUpdateCoordinator
-    from .data import TtlockBleConfigEntry, TtlockBleEnrolledFingerprint
+    from .data import TtlockBleConfigEntry, TtlockBleLastUnlockAttributes
 
 # How often the recorded advertisement time is re-read. Costs nothing on
 # the wire: it only looks at what the bluetooth manager already holds.
 LAST_SEEN_REFRESH_INTERVAL = timedelta(seconds=30)
+
+# Unlock records that name who unlocked. A door sensor reporting the door
+# open is filed as an unlock too, but it follows the unlock that opened
+# it, and would otherwise replace whoever that was with nobody.
+CREDENTIAL_UNLOCK_RECORD_TYPES: frozenset[int] = UNLOCK_RECORD_TYPES - {
+    LogOperate.DOOR_SENSOR_UNLOCK
+}
 
 
 async def async_setup_entry(
@@ -48,8 +58,9 @@ async def async_setup_entry(
     entry: TtlockBleConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create the per-lock sensors, then one sensor per enrolled fingerprint."""
+    """Create the per-lock sensors."""
     data = entry.runtime_data
+    resolver = TtlockBleCredentialResolver(await async_get_fingerprint_store(hass))
     async_add_entities(
         sensor
         for key in data.virtual_keys
@@ -57,6 +68,7 @@ async def async_setup_entry(
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
             TtlockBleClockDriftSensor(data.coordinator, key),
+            TtlockBleLastUnlockedBySensor(data.coordinator, key, resolver),
             *(
                 (TtlockBleFingerprintCountSensor(data.coordinator, key),)
                 if can_administer(key)
@@ -64,15 +76,6 @@ async def async_setup_entry(
             ),
         )
     )
-
-    def _create_fingerprint_sensor(
-        key: VirtualKey, fingerprint: TtlockBleEnrolledFingerprint
-    ) -> TtlockBleFingerprintNumberSensor:
-        return TtlockBleFingerprintNumberSensor(data.coordinator, key, fingerprint)
-
-    TtlockBleFingerprintTracker(
-        hass, entry, async_add_entities, _create_fingerprint_sensor
-    ).async_start()
 
 
 class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
@@ -263,7 +266,7 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
         return self._attr_native_value
 
 
-class TtlockBleFingerprintCountSensor(TtlockBleFingerprintsHubEntity, SensorEntity):
+class TtlockBleFingerprintCountSensor(TtlockBleEntity, SensorEntity):
     """How many fingerprints the lock lists, as of the last read."""
 
     _attr_translation_key = "fingerprint_count"
@@ -282,18 +285,100 @@ class TtlockBleFingerprintCountSensor(TtlockBleFingerprintsHubEntity, SensorEnti
         return None if fingerprints is None else len(fingerprints)
 
 
-class TtlockBleFingerprintNumberSensor(TtlockBleFingerprintEntity, SensorEntity):
-    """The fingerprint's number, as the official app shows it."""
+class TtlockBleLastUnlockedBySensor(TtlockBleEntity, RestoreSensor):
+    """
+    Who last unlocked the lock, as its operation log tells it.
 
-    _attr_translation_key = "fingerprint_number"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    The state is the name of the credential when one is known — a named
+    fingerprint, or `Home Assistant` for an unlock sent by this
+    integration — and otherwise its identifier, such as the number of a
+    fingerprint nobody named yet. A passcode has neither, since the only
+    thing the lock records for it is the code itself, so its unlock
+    reads `unknown` with `credential_type` saying it was a passcode.
+
+    Records reach this in the order they are read, and a read can carry
+    several, so one older than the unlock already shown is ignored.
+    """
+
+    _attr_translation_key = "last_unlocked_by"
+    _attr_icon = "mdi:account-key"
+
+    def __init__(
+        self,
+        coordinator: TtlockBleDataUpdateCoordinator,
+        key: VirtualKey,
+        resolver: TtlockBleCredentialResolver,
+    ) -> None:
+        """Bind to the lock and to what names the credentials of its records."""
+        super().__init__(coordinator, key)
+        self._resolver = resolver
+        self._attr_native_value: str | None = None
+        self._unlock_attributes: TtlockBleLastUnlockAttributes = {}
+        self._unlocked_at: datetime | None = None
 
     @property
     def unique_id(self) -> str:
         """Return a stable unique id for this entity."""
-        return f"{self._key.lockMac}_fingerprint_{self._fingerprint.token}"
+        return f"{self._key.lockMac}_last_unlocked_by"
 
     @property
-    def native_value(self) -> int:
-        """Return the fingerprint's number."""
-        return self._fingerprint.number
+    def extra_state_attributes(self) -> TtlockBleLastUnlockAttributes:
+        """Carry the credential's type and identifier, and when it unlocked."""
+        return self._unlock_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Bring back the last unlock, then follow the operation log."""
+        await super().async_added_to_hass()
+        await self._async_restore()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                log_signal(self._key.lockMac),
+                self._on_log_entry,
+            ),
+        )
+
+    async def _async_restore(self) -> None:
+        last_sensor_data = await self.async_get_last_sensor_data()
+        last_state = await self.async_get_last_state()
+        if last_sensor_data is None or last_state is None:
+            return
+        value = last_sensor_data.native_value
+        self._attr_native_value = value if isinstance(value, str) else None
+        attributes: TtlockBleLastUnlockAttributes = {}
+        credential_type = last_state.attributes.get("credential_type")
+        if isinstance(credential_type, str):
+            attributes["credential_type"] = credential_type
+        credential = last_state.attributes.get("credential")
+        if isinstance(credential, str):
+            attributes["credential"] = credential
+        unlocked_at = last_state.attributes.get("unlocked_at")
+        if isinstance(unlocked_at, str):
+            attributes["unlocked_at"] = unlocked_at
+            self._unlocked_at = dt_util.parse_datetime(unlocked_at)
+        self._unlock_attributes = attributes
+
+    @callback
+    def _on_log_entry(self, record: LogEntry) -> None:
+        """Adopt an unlock record as the last one, unless it is older."""
+        if record.record_type not in CREDENTIAL_UNLOCK_RECORD_TYPES:
+            return
+        unlocked_at = record.operate_date
+        if (
+            unlocked_at is not None
+            and self._unlocked_at is not None
+            and unlocked_at < self._unlocked_at
+        ):
+            return
+        credential = self._resolver.resolve(self._key.lockMac, record)
+        attributes: TtlockBleLastUnlockAttributes = {}
+        if credential.credential_type is not None:
+            attributes["credential_type"] = credential.credential_type.value
+        if credential.identifier is not None:
+            attributes["credential"] = credential.identifier
+        if unlocked_at is not None:
+            attributes["unlocked_at"] = unlocked_at.isoformat()
+            self._unlocked_at = unlocked_at
+        self._unlock_attributes = attributes
+        self._attr_native_value = credential.name or credential.identifier
+        self.async_write_ha_state()
