@@ -138,9 +138,8 @@ async def async_setup_entry(
     bluetooth_unsubs = TtlockBleAdvertisementTracker(hass, coordinator).async_register(
         virtual_keys,
     )
-    for unsubscribe in TtlockBlePasscodeLedger(
-        hass, credential_store, coordinator
-    ).async_track(virtual_keys):
+    passcode_ledger = TtlockBlePasscodeLedger(hass, credential_store, coordinator)
+    for unsubscribe in passcode_ledger.async_track_learning(virtual_keys):
         entry.async_on_unload(unsubscribe)
 
     async def _stop_connections() -> None:
@@ -172,6 +171,8 @@ async def async_setup_entry(
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    for unsubscribe in passcode_ledger.async_track_forgetting(virtual_keys):
+        entry.async_on_unload(unsubscribe)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
