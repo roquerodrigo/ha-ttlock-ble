@@ -23,6 +23,7 @@ jobs:
     uses: roquerodrigo/workflows/.github/workflows/release-please.yml@main
     secrets:
       release-token: ${{ secrets.RELEASE_PLEASE_PAT }}
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
   publish:
     needs: release
