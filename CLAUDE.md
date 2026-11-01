@@ -6,13 +6,6 @@ Guidance for Claude Code (claude.ai/code) agents working in this repository.
 
 Before creating, renaming or restructuring any file/class/function, **read [`CODE_STYLE.md`](./CODE_STYLE.md)**. It is the single source of truth for conventions: language, file organisation, naming, typing, properties vs `__init__`, imports, docstrings, comments, coordinator pattern, diagnostics layout, translations, lint workflow.
 
-For user-facing topics (what's included, how to fork, rename steps, layout diagram, useful commands, CI list), see [`README.md`](./README.md).
-
-This file deliberately avoids restating those rules — it only adds:
-
-1. The verification workflow agents must run after every change.
-2. The architectural reasoning that is not obvious from `CODE_STYLE.md` alone.
-
 ## Verification workflow
 
 **After every code change, always run lint then tests, in that order, before declaring the task done:**
@@ -102,14 +95,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 ### API client
 
-`api.py` exposes `TtlockBleApiClient`, a thin async wrapper around the SDK's `TTLockCloud` used only by the config flow (cloud login + 2FA + key sync). Exceptions live under `exceptions/`:
-
-- `TtlockBleApiClientError` (base)
-- `TtlockBleApiClientCommunicationError` (httpx network failure)
-- `TtlockBleApiClientAuthenticationError` (wrong credentials)
-- `TtlockBleApiClientVerificationRequiredError` (errcode -1014 → 2FA branch)
-
-`_classify_cloud_error` maps the SDK's `CloudError` body onto these by inspecting `errorCode` / `errcode`. Runtime BLE state never goes through this client — that path is `connection.py` → SDK `TTLockClient` → bleak.
+`api.py` exposes `TtlockBleApiClient`, a thin async wrapper around the SDK's `TTLockCloud` used only by the config flow (cloud login + 2FA + key sync). `_classify_cloud_error` maps the SDK's `CloudError` body onto the `exceptions/` classes by inspecting `errorCode` / `errcode` (-1014 → the 2FA branch). Runtime BLE state never goes through this client — that path is `connection.py` → SDK `TTLockClient` → bleak.
 
 ### BLE connection layer
 
@@ -148,7 +134,7 @@ The diagnostics dump carries the last advertisement per lock, raw bytes included
 
 ### Device description
 
-`device_description_store.py` keeps, per MAC, the model, hardware and firmware strings the lock answers over the standard BLE Device Information Service (`get_device_info()` in the SDK). Three things shape it:
+`device_description_store.py` keeps, per MAC, the model, hardware and firmware strings the lock answers over the standard BLE Device Information Service (`get_device_info()` in the SDK). Four things shape it:
 
 - **Nothing connects for them.** The read rides on a poll that just reached the lock, in `coordinator.py`'s `_async_describe`. A lock only grants a session while it is awake, and hardware strings are not worth waking one for.
 - **Once per Home Assistant run, not once ever.** The values are static until a firmware upgrade changes them, so the store is what a restart displays, and the first successful poll of each run re-reads and replaces it.
@@ -166,9 +152,10 @@ The lock stamps every operation-log record from an RTC it keeps itself: no NTP, 
 
 ### Lock entity
 
-`lock.py` reports the transitional states the platform defines — `locking` and `unlocking` — for as long as a command is on the wire, which is seconds: a BLE session has to be opened and the lock has to answer. Three things keep that honest:
+`lock.py` reports the transitional states the platform defines — `locking` and `unlocking` — from the moment a command starts until the bolt stops, which is seconds: a BLE session has to be opened, the lock has to answer, and the bolt keeps travelling after it does. Four things keep that honest:
 
-- The flags are cleared in `finally`. A command also ends in `asyncio.CancelledError` (HA cancels the service call when the client that issued it disconnects), and `LockEntity.state` ranks `is_locking` above `is_locked`, so any escape that skipped the reset left the entity claiming a movement that had ended.
+- A successful command opens a settle window. It ends on the state push the lock sends once the bolt has stopped, adopted whatever it says, or after `COMMAND_SETTLE_SECONDS` if that push never comes, when the lock is queried once more. Inside the window a reading that contradicts the commanded state is suppressed, since it was taken while the bolt was still moving.
+- A command that fails clears the flags in `finally`. A command also ends in `asyncio.CancelledError` (HA cancels the service call when the client that issued it disconnects), and `LockEntity.state` ranks `is_locking` above `is_locked`, so any escape that skipped the reset left the entity claiming a movement that had ended.
 - `_command_lock` serializes the bookkeeping. The BLE layer's lock orders the round trips only; without an entity-level one, the first of two concurrent commands to finish published a settled state while the second was still turning the bolt.
 - `jammed`, `open` and `opening` are never reported. The firmware exposes no jam signal — only a bolt position and a success/failure byte — and has no latch command distinct from unlocking, so any value there would be a guess.
 
@@ -209,4 +196,4 @@ Every fingerprint, card and passcode a lock is known to hold gets a `text` entit
 
 ### Diagnostics
 
-`diagnostics.py` returns `TtlockBleDiagnosticsPayload`. `username`/`password`/`aesKeyStr`/`unlockKey`/`adminPs`/`keys` are redacted via `async_redact_data` (driven by `TO_REDACT: frozenset[str]`). `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
+`diagnostics.py` returns `TtlockBleDiagnosticsPayload`, with the entry's credentials and keys redacted through `TO_REDACT`. `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
