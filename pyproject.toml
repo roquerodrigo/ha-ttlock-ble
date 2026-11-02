@@ -21,12 +21,12 @@ dev = [
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pytest-homeassistant-custom-component==0.13.375",
-    "serialx==1.15.0",
+    "serialx==1.15.1",
     "ttlock-ble==0.3.3",
 ]
 lint = [
-    "ruff==0.17.2",
-    "mypy==2.4.0",
+    "ruff==0.17.3",
+    "mypy==2.4.1",
 ]
 
 [tool.pytest.ini_options]
