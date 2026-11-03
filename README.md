@@ -201,7 +201,7 @@ This wires ruff, mypy and basic file hygiene checks (`.pre-commit-config.yaml`) 
 
 - **`ci.yml`** — lint (ruff check + format, mypy), tests (pytest with the 90 % coverage gate) and validation (`hassfest` + HACS) via the shared reusable workflows
 - **`codeql.yml`** — GitHub CodeQL security scan; push/PR to `main` and a weekly cron
-- **`release.yml`** — release-please opens a release PR on every push to `main` based on conventional commits
+- **`release.yml`** — [Release Autopilot](https://github.com/marketplace/actions/release-autopilot), gated on a green CI run on `main`, opens a release PR based on conventional commits; when a release is created, attaches the `ttlock_ble.zip` that HACS downloads
 - **`auto-assign.yml`** — assigns the repository owner to new issues and pull requests
 
 ## Support

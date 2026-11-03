@@ -231,7 +231,8 @@ emergency `git commit --no-verify` and immediately re-run
 ## Conventional commits
 
 All commits follow [Conventional Commits](https://www.conventionalcommits.org/),
-which `release-please` parses to bump the version and generate `CHANGELOG.md`:
+which `release-autopilot` parses to bump the version and write the release
+notes and `CHANGELOG.md`:
 
 | Type | Meaning | Bump |
 |---|---|---|

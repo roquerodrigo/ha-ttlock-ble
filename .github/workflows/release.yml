@@ -10,27 +10,40 @@ on:
     types: [completed]
     branches: [main]
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
   release:
+    name: Release
     if: >-
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
-    uses: roquerodrigo/workflows/.github/workflows/release-please.yml@main
-    secrets:
-      release-token: ${{ secrets.RELEASE_PLEASE_PAT }}
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Release
+        id: release
+        uses: roquerodrigo/release-autopilot@latest
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
   publish:
     needs: release
-    if: needs.release.outputs.release-created == 'true'
+    if: needs.release.outputs.released == 'true'
     permissions:
       contents: write
     uses: roquerodrigo/workflows/.github/workflows/publish-hacs-zip.yml@main
     with:
       domain: ttlock_ble
-      ref: ${{ needs.release.outputs.tag-name }}
+      ref: ${{ needs.release.outputs.tag }}
