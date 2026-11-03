@@ -21,8 +21,20 @@ jobs:
     uses: roquerodrigo/workflows/.github/workflows/python-test.yml@main
 
   validate:
+    name: Home Assistant Marketplace
     needs: lint
-    uses: roquerodrigo/workflows/.github/workflows/home-assistant-validate.yml@main
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate
+        uses: roquerodrigo/home-assistant-autopilot@latest
 
   update-pr-branch:
     if: github.event_name == 'pull_request'
