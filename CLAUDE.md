@@ -28,6 +28,8 @@ The Home Assistant version is pinned in two places and **must be updated togethe
 
 Verify the pairing on PyPI before committing: the `requires_dist` of `pytest-homeassistant-custom-component` must list the same `homeassistant==<X.Y.Z>` you pinned in `pyproject.toml`. Run `uv sync` after bumping so `uv.lock` picks up the new pins.
 
+`pytest`, `pytest-asyncio` and `pytest-cov` are not pinned directly: the harness pins them, so they move with it. Dependabot ignores both `homeassistant` and the harness.
+
 ## The `ttlock-ble` SDK pin
 
 This integration wraps the sibling repo [`ttlock-ble`](https://github.com/roquerodrigo/ttlock-ble), which owns all BLE protocol/crypto logic and the cloud login client. The pin lives in **two places that can drift**:
