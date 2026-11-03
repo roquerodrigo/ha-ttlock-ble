@@ -27,9 +27,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      released: ${{ steps.release.outputs.released }}
-      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Release
         id: release
@@ -38,12 +35,9 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-  publish:
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    permissions:
-      contents: write
-    uses: roquerodrigo/workflows/.github/workflows/publish-hacs-zip.yml@main
-    with:
-      domain: ttlock_ble
-      ref: ${{ needs.release.outputs.tag }}
+      - name: Attach the release asset
+        if: steps.release.outputs.released == 'true'
+        uses: roquerodrigo/home-assistant-autopilot@latest
+        with:
+          command: publish
+          tag: ${{ steps.release.outputs.tag }}
