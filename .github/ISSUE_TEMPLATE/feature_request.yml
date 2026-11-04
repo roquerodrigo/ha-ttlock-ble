@@ -1,46 +1,33 @@
----
-name: "Feature request"
-description: "Suggest an idea for this project"
+name: Feature request
+description: Suggest a new feature or an improvement.
+labels: [enhancement]
 body:
-- type: markdown
-  attributes:
-    value: Before you open a new feature request, search through the existing feature requests to see if others have had the same idea.
-- type: checkboxes
-  attributes:
-    label: Checklist
-    options:
-      - label: I have filled out the template to the best of my ability.
-        required: true
-      - label: This only contains 1 feature request (if you have multiple feature requests, open one feature request for each feature request).
-        required: true
-      - label: This issue is not a duplicate feature request of [previous feature requests](../../issues?q=is%3Aissue+label%3A%22Feature+Request%22+).
-        required: true
-
-- type: textarea
-  attributes:
-    label: "Is your feature request related to a problem? Please describe."
-    description: "A clear and concise description of what the problem is."
-    placeholder: "I'm always frustrated when [...]"
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-    label: "Describe the solution you'd like"
-    description: "A clear and concise description of what you want to happen."
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-    label: "Describe alternatives you've considered"
-    description: "A clear and concise description of any alternative solutions or features you've considered."
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-    label: "Additional context"
-    description: "Add any other context or screenshots about the feature request here."
-  validations:
-    required: true
+  - type: markdown
+    attributes:
+      value: >-
+        Before opening, search the [existing issues](https://github.com/roquerodrigo/ha-ttlock-ble/issues?q=is%3Aissue) for the same idea.
+        Suggest one feature per issue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What you are trying to do and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you would like it to work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other solutions or workarounds you have tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, device model, links or anything else that helps.
