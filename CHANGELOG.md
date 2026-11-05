@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.12.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.12.0...v3.12.1) (2026-11-05)
+
+### Bug fixes
+
+- Locking and unlocking no longer fail on locks whose eKeys have been reset. The ttlock-ble library is updated to 0.3.4. ([#152](https://github.com/roquerodrigo/ha-ttlock-ble/pull/152))
+
 ## [3.12.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.11.0...v3.12.0) (2026-10-29)
 
 
