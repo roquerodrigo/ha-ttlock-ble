@@ -1,24 +1,14 @@
 ## Summary
 
-<!-- 1-3 bullets describing what changed and why. -->
+<!-- What changes for people who use the integration, and why. The release notes are written from this text. -->
 
-## Type of change
+## Testing
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactor / cleanup
-- [ ] Documentation
-- [ ] Tooling / CI
-
-## Test plan
-
-- [ ] `uv run ruff format --check .`, `uv run ruff check .` and `uv run mypy custom_components/ttlock_ble` pass
-- [ ] `uv run pytest` passes with the coverage gate
-- [ ] All translation locales updated (if user-facing strings changed)
+<!-- How the change was verified beyond CI, for example on a running Home Assistant instance. -->
 
 ## Checklist
 
-- [ ] Code is in English (only `translations/<locale>.json` follows the locale)
-- [ ] One top-level class per file
-- [ ] CLAUDE.md / README updated if architecture or workflow changed
-- [ ] `manifest.json` version bumped if releasing
+- [ ] Commits follow Conventional Commits, with `!` or a `BREAKING CHANGE:` footer when they break compatibility
+- [ ] Code follows `CODE_STYLE.md`
+- [ ] Every translation locale updated, if user-facing strings changed
+- [ ] Documentation updated, if behavior, configuration or workflow changed
