@@ -19,7 +19,7 @@ dev = [
     "pre-commit==4.7.0",
     "pytest-homeassistant-custom-component==0.13.375",
     "serialx==1.15.1",
-    "ttlock-ble==0.3.3",
+    "ttlock-ble==0.3.4",
 ]
 lint = [
     "ruff==0.17.3",

@@ -1207,7 +1207,7 @@ dev = [
     { name = "pre-commit", specifier = "==4.7.0" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.375" },
     { name = "serialx", specifier = "==1.15.1" },
-    { name = "ttlock-ble", specifier = "==0.3.3" },
+    { name = "ttlock-ble", specifier = "==0.3.4" },
 ]
 lint = [
     { name = "mypy", specifier = "==2.4.1" },
@@ -3145,7 +3145,7 @@ wheels = [
 
 [[package]]
 name = "ttlock-ble"
-version = "0.3.3"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -3153,9 +3153,9 @@ dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/ab/5acb64c3aba52908f9ebfc14a9d6e6c95d258e85ecbeaa6e4231fb4e3602/ttlock_ble-0.3.3.tar.gz", hash = "sha256:630689800913b83ca95bfa7db17ffb3b5aa2a453e2da85f963a3c29310c3328a", size = 78924, upload-time = "2026-10-27T11:41:04.592Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/10/1860f8c1a91aae6cadd7d2fbce1fc0c369b68bd7cf14bdbaafd56494a3f4/ttlock_ble-0.3.4.tar.gz", hash = "sha256:b71ad54760d7d7133b9e2608eb6ba57f6d21bc45cb81d30e2498f3a5e5f16874", size = 79019, upload-time = "2026-11-05T02:06:25.768Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/48/c24f08fb76e9f1b0e2231370087d38e4b03c16c4efdaa268a7ad2206c347/ttlock_ble-0.3.3-py3-none-any.whl", hash = "sha256:50c5255d240789e797a93b643e500f6e5e5b3c32d4ebeceb5bb5dea807fd16d3", size = 100545, upload-time = "2026-10-27T11:41:03.457Z" },
+    { url = "https://files.pythonhosted.org/packages/95/48/a29d20fb788436efa21d511e249edb4069a83c9693b147b4bd2f9409a8ce/ttlock_ble-0.3.4-py3-none-any.whl", hash = "sha256:bc2e4b1d65fee6d8c366e19bf2ee8b7f10b7428cb865a38ca91042ed4f027e99", size = 100557, upload-time = "2026-11-05T02:06:24.312Z" },
 ]
 
 [[package]]
