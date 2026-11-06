@@ -1,11 +1,96 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
-from ttlock_ble import TTLockError
+from ttlock_ble import LockState, TTLockError
+
+
+async def test_periodic_read_updates_bolt_without_notification(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.ttlock_ble.connection import state_signal
+
+    state = hass.states.async_all("lock")[0]
+    for raw_state, expected in [
+        (LockState.UNLOCKED, "unlocked"),
+        (LockState.LOCKED, "locked"),
+    ]:
+        async_dispatcher_send(
+            hass,
+            state_signal(sample_virtual_key.lockMac),
+            raw_state,
+            time.monotonic(),
+        )
+        await hass.async_block_till_done()
+        assert hass.states.get(state.entity_id).state == expected
+
+
+async def test_periodic_read_rejects_older_observation(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.ttlock_ble.connection import state_signal
+
+    state = hass.states.async_all("lock")[0]
+    observed_at = time.monotonic()
+    async_dispatcher_send(
+        hass,
+        state_signal(sample_virtual_key.lockMac),
+        LockState.UNLOCKED,
+        observed_at,
+    )
+    await hass.async_block_till_done()
+    async_dispatcher_send(
+        hass,
+        state_signal(sample_virtual_key.lockMac),
+        LockState.LOCKED,
+        observed_at - 1,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+
+
+async def test_periodic_read_does_not_complete_pending_command(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    mock_ttlock_connection,
+    real_settle_window,
+) -> None:
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.ttlock_ble.connection import state_signal
+
+    mock_ttlock_connection.async_query_state.return_value = None
+    state = hass.states.async_all("lock")[0]
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": state.entity_id},
+        blocking=True,
+    )
+    for raw_state in [LockState.LOCKED, LockState.UNLOCKED, LockState.LOCKED]:
+        async_dispatcher_send(
+            hass,
+            state_signal(sample_virtual_key.lockMac),
+            raw_state,
+            time.monotonic(),
+        )
+        await hass.async_block_till_done()
+        assert hass.states.get(state.entity_id).state == "unlocking"
 
 
 async def test_lock_entity_created_for_each_key(hass, setup_integration) -> None:

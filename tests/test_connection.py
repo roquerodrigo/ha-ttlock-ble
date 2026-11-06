@@ -7,14 +7,23 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from bleak import BleakError
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from ttlock_ble import DeviceInfo, FingerprintEntry, LockEvent, LockSound, TTLockError
+from ttlock_ble import (
+    DeviceInfo,
+    FingerprintEntry,
+    LockEvent,
+    LockSound,
+    LockState,
+    TTLockError,
+)
 
 from custom_components.ttlock_ble.connection import (
     TtlockBleConnection,
     connection_signal,
     event_signal,
     log_signal,
+    state_signal,
 )
 from custom_components.ttlock_ble.data import TtlockBleLogCursor
 
@@ -33,6 +42,127 @@ def test_connection_signal_lowercases_mac() -> None:
         connection_signal("AA:BB:CC:DD:EE:FF")
         == "ttlock_ble_connection_aa:bb:cc:dd:ee:ff"
     )
+
+
+async def test_notification_during_connect_is_delivered(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    received = []
+    async_dispatcher_connect(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        received.append,
+    )
+    pushed = LockEvent.from_payload(0x14, 1, bytes([88, 0, 2]))
+
+    async def connect_with_early_notification() -> None:
+        # Subscription is active before the SDK finishes connection setup.
+        if mock_ttlock_client.add_event_listener.call_args is not None:
+            listener = mock_ttlock_client.add_event_listener.call_args.args[0]
+            listener(pushed)
+
+    mock_ttlock_client.connect.side_effect = connect_with_early_notification
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    try:
+        await conn.async_query_state()
+        await hass.async_block_till_done()
+        assert received == [pushed]
+    finally:
+        await conn.async_stop()
+
+
+async def test_failed_connect_removes_early_listener(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ttlock_client.connect.side_effect = BleakError("notify failed")
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    assert await conn.async_query_state() is None
+    listener = mock_ttlock_client.add_event_listener.call_args.args[0]
+    mock_ttlock_client.remove_event_listener.assert_called_once_with(listener)
+    mock_ttlock_client.disconnect.assert_awaited_once()
+
+
+async def test_permanent_reads_recover_changes_without_pushes(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    observed = []
+    finished = asyncio.Event()
+
+    @callback
+    def on_state(raw_state, observed_at) -> None:
+        observed.append((raw_state, observed_at))
+        if len(observed) == 3:
+            finished.set()
+
+    async_dispatcher_connect(hass, state_signal(sample_virtual_key.lockMac), on_state)
+    mock_ttlock_client.query_state.side_effect = [
+        (LockState.LOCKED, 88),
+        (LockState.UNLOCKED, 88),
+        (None, 88),
+        (LockState.LOCKED, 88),
+    ]
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with patch(
+        "custom_components.ttlock_ble.connection.PERMANENT_STATE_REFRESH_SECONDS", 0.01
+    ):
+        await conn.async_start()
+        try:
+            async with asyncio.timeout(5):
+                await finished.wait()
+        finally:
+            await conn.async_stop()
+        reads_at_stop = mock_ttlock_client.query_state.await_count
+        await asyncio.sleep(0.03)
+    assert [state for state, _ in observed] == [
+        LockState.LOCKED,
+        LockState.UNLOCKED,
+        LockState.LOCKED,
+    ]
+    assert observed[0][1] < observed[1][1] < observed[2][1]
+    assert mock_ttlock_client.connect.await_count == 1
+    assert mock_ttlock_client.query_state.await_count == reads_at_stop == 4
+    mock_ttlock_client.lock.assert_not_awaited()
+    mock_ttlock_client.unlock.assert_not_awaited()
+
+
+async def test_permanent_read_failure_reconnects_and_recovers(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    recovered = asyncio.Event()
+
+    @callback
+    def on_state(_raw_state, _observed_at) -> None:
+        recovered.set()
+
+    async_dispatcher_connect(hass, state_signal(sample_virtual_key.lockMac), on_state)
+    mock_ttlock_client.query_state.side_effect = [
+        TTLockError("read timed out"),
+        (LockState.LOCKED, 88),
+    ]
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with patch(
+        "custom_components.ttlock_ble.connection.RECONNECT_INITIAL_BACKOFF", 0.01
+    ):
+        await conn.async_start()
+        try:
+            async with asyncio.timeout(5):
+                await recovered.wait()
+            assert mock_ttlock_client.connect.await_count == 2
+            mock_ttlock_client.disconnect.assert_awaited()
+        finally:
+            await conn.async_stop()
 
 
 async def test_is_connected_false_before_start(hass, sample_virtual_key) -> None:

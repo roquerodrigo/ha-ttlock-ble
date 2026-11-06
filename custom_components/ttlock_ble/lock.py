@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_call_later
 
 from ttlock_ble import LockState, TTLockError
 
-from .connection import event_signal
+from .connection import event_signal, state_signal
 from .const import DOMAIN, LOGGER
 from .entity import TtlockBleEntity
 
@@ -73,11 +73,13 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
     Settled state is reported via `_attr_is_locked`. It is updated:
     - On every coordinator refresh that returned a known lock state —
       which includes the state decoded from the lock's advertisements,
-      the only channel that reports an auto-lock.
+      including an auto-lock advertised while disconnected.
     - Optimistically the moment `async_lock`/`async_unlock` succeed.
     - On every push event the SDK forwards (keypad, fingerprint,
       auto-lock): the SDK keeps the BLE link alive for a configurable
       window after each command, so those pushes arrive in real time.
+    - On periodic state reads while permanent connection is enabled,
+      without treating a read as a completion push.
     - On a forced re-query triggered by any push event, as a sanity
       check against losing or misreading a notification.
 
@@ -138,6 +140,13 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
                 self._on_lock_event,
             ),
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                state_signal(self._key.lockMac),
+                self._on_state_read,
+            ),
+        )
         self.async_on_remove(self._async_cancel_settle_timer)
 
     @callback
@@ -173,6 +182,20 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             self._apply_lock_state(event.lock_state)
             return
         self._async_create_tracked_task(self._async_query_and_apply(), "query_state")
+
+    @callback
+    def _on_state_read(self, raw_state: LockState, observed_at: float) -> None:
+        """
+        Adopt a queried state without treating it as a completion push.
+
+        Keep the existing command settle window and observation-time
+        ordering: a read can still report the old position during motion.
+        """
+        if self._adopt(
+            locked=raw_state == LockState.LOCKED,
+            observed_at=observed_at,
+        ):
+            self._write_state_if_added()
 
     def _apply_lock_state(self, raw_state: LockState) -> None:
         """Write `raw_state` onto `_attr_is_locked` respecting the settle window."""
