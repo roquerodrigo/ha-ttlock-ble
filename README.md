@@ -110,20 +110,20 @@ Reaching the lock takes no extra configuration: whatever Bluetooth radio Home As
 
 Settings → Devices & Services → TTLock BLE → **Configure** exposes one setting:
 
-- `permanent_connection` (default off) — hold a BLE session open, reopening it the instant the lock drops it. Push events (keypad, auto-lock) then arrive in real time, and the lock's battery pays for it: the firmware closes an idle session within seconds, so this reconnects about as often. With the option off nothing is held open and nothing reconnects.
+- `permanent_connection` (default off) — hold a BLE session open and read the actual lock state immediately after connecting, then wait two seconds between completed reads. These requests can prevent the firmware from closing an idle session, keeping push notifications available; they also reconcile the bolt position when a notification is missed. A dropped connection is still reopened immediately. The reads add BLE traffic and processing on the lock; battery impact has not been measured. With the option off there are no periodic state reads or background reconnects.
 
-There is no polling interval and no reconnect pacing to configure. Earlier releases exposed `scan_interval` and `reconnect_interval`; both are gone, because nothing polls on a schedule any more — state arrives from the lock's own advertisements, and a session is opened only when something actually needs one.
+There is no polling interval or reconnect pacing to configure. Earlier releases exposed `scan_interval` and `reconnect_interval`; both are gone. Periodic reads run only with `permanent_connection` enabled; otherwise state arrives from advertisements and sessions open on demand.
 
 To edit credentials without removing and re-adding, use the integration's three-dot menu → **Reconfigure**.
 
 ## How it works
 
-The lock's TTLock firmware aggressively closes idle BLE sessions (~5 s of silence and it drops). The integration:
+TTLock firmware can close idle BLE sessions within seconds; the timeout depends on the lock. The integration:
 
 1. Reads the bolt position and battery level straight out of the lock's BLE advertisements. This costs no connection at all and is the only channel that reports an operation performed while Home Assistant is not connected — an auto-lock, the official app, a keypad code.
-2. Opens a session only when there is a reason to: a `lock`/`unlock` command, an advertisement announcing unsynced operation records, or the first bolt position while none is known at all. With `permanent_connection` on, `connection.py` also holds one open and reopens it on every drop bleak signals.
+2. Opens a session only when there is a reason to: a `lock`/`unlock` command, an advertisement announcing unsynced operation records, or the first bolt position while none is known at all. With `permanent_connection` on, `connection.py` also maintains a session with periodic state reads and reopens it on every drop bleak signals.
 3. After a user-initiated `lock`/`unlock`, the SDK keeps the link alive for 25 s so push events (the lock's reports of keypad operations, auto-locks, etc.) reach Home Assistant in real time.
-4. Each push event carries the decoded `lock_state` and `battery` when the firmware emits a heartbeat-style payload, letting the entities update without a follow-up query.
+4. A push listener is registered before connecting, so notifications arriving during connection setup are not discarded. Each push event carries the decoded `lock_state` and `battery` when the firmware emits a heartbeat-style payload, letting the entities update without a follow-up query.
 5. While a session is open anyway, the lock is asked what it is — model, hardware and firmware — and the answer is remembered, so a restart shows it without connecting.
 
 ## Useful commands

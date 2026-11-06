@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from typing import TYPE_CHECKING
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
@@ -48,6 +49,9 @@ if TYPE_CHECKING:
 RECONNECT_INITIAL_BACKOFF = 1.0
 RECONNECT_MAX_BACKOFF = 300.0
 
+# Shorter than the idle disconnect observed on locks such as the Zafe T-lock.
+PERMANENT_STATE_REFRESH_SECONDS = 2.0
+
 # The lock answers the operation log one record per BLE frame, each with
 # its own timeout, and the SDK holds its command lock for the whole
 # pagination. Unbounded, a lock with a long unsynced history makes the
@@ -60,6 +64,11 @@ MAX_LOG_ENTRIES_PER_FETCH = 25
 def event_signal(mac: str) -> str:
     """Dispatcher signal that carries `LockEvent`s for `mac`."""
     return f"{DOMAIN}_event_{mac.lower()}"
+
+
+def state_signal(mac: str) -> str:
+    """Dispatcher signal for queried state, distinct from a completion push."""
+    return f"{DOMAIN}_state_read_{mac.lower()}"
 
 
 def log_signal(mac: str) -> str:
@@ -120,9 +129,9 @@ class TtlockBleConnection:
         Hold a BLE session open, reopening it whenever it drops.
 
         Only started for an entry with the permanent connection on. It
-        buys instant commands and live push events, and it costs the
-        lock's battery: the firmware drops an idle session within
-        seconds, so this reconnects about as often.
+        reads state every two seconds to keep idle firmware responsive
+        and recover missing notifications. This adds lock battery work;
+        actual consumption depends on the firmware.
         """
         if self._task is not None:
             return
@@ -149,8 +158,8 @@ class TtlockBleConnection:
         Return `(lock_state, battery)` through the live connection.
 
         Returns `None` when the lock is out of range or the query failed.
-        Every caller is already rate-limited — the coordinator by
-        `scan_interval`, the lock entity by the user pressing a button —
+        Callers pace their own reads, including the permanent connection
+        loop and the lock entity's post-command reconciliation,
         so the reconnect cooldown the maintain loop keeps is deliberately
         not consulted here: it paces the background loop, not the reads.
         """
@@ -498,6 +507,8 @@ class TtlockBleConnection:
             self._key,
             disconnected_callback=self._on_disconnected,
         )
+        # Notifications can arrive before connect() returns.
+        client.add_event_listener(self._on_event)
         try:
             await client.connect()
         except Exception as exc:  # noqa: BLE001
@@ -509,11 +520,11 @@ class TtlockBleConnection:
             # error with a traceback instead of a failure that names the
             # lock. The half-open session is closed here rather than
             # left to the firmware's idle timeout.
+            client.remove_event_listener(self._on_event)
             LOGGER.debug("BLE connect failed for %s: %s", self._key.lockMac, exc)
             with contextlib.suppress(Exception):
                 await client.disconnect()
             return None
-        client.add_event_listener(self._on_event)
         self._client = client
         self._disconnected.clear()
         self._broadcast_connection_state(connected=True)
@@ -569,26 +580,43 @@ class TtlockBleConnection:
 
     async def _async_maintain(self) -> None:
         """
-        Background loop that reopens the BLE session as soon as it drops.
+        Keep a permanent session active and reconcile actual lock state.
 
-        This is the permanent connection, so a drop is followed straight
-        away by another connect. The lock drops an idle session within
-        seconds, which makes this loop a reconnect storm by design — the
-        battery cost is the whole trade the option asks the user to
-        accept. Connect failures use exponential backoff, so a lock that
-        is not answering is not hammered on top of that.
+        State reads keep idle firmware responsive and recover missed
+        notifications. They share the command lock and never move the bolt.
+        A disconnect interrupts the wait so reconnection is immediate.
         """
         backoff = RECONNECT_INITIAL_BACKOFF
         while not self._closing:
             try:
-                async with self._lock:
-                    client = await self._async_ensure_connected_locked()
-                if client is None:
+                result = await self.async_query_state()
+                if result is None:
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, RECONNECT_MAX_BACKOFF)
                     continue
+                observed_at = time.monotonic()
+                raw_state, battery = result
+                LOGGER.debug(
+                    "Permanent state read for %s (lock_state=%s battery=%s)",
+                    self._key.lockMac,
+                    raw_state,
+                    battery,
+                )
+                if raw_state is not None:
+                    async_dispatcher_send(
+                        self._hass,
+                        state_signal(self._key.lockMac),
+                        raw_state,
+                        observed_at,
+                    )
                 backoff = RECONNECT_INITIAL_BACKOFF
-                await self._disconnected.wait()
+                # A disconnect wakes this immediately; an idle live session
+                # gets another real read after the interval expires.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._disconnected.wait(),
+                        timeout=PERMANENT_STATE_REFRESH_SECONDS,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
