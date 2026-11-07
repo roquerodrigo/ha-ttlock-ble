@@ -110,7 +110,7 @@ Reaching the lock takes no extra configuration: whatever Bluetooth radio Home As
 
 Settings → Devices & Services → TTLock BLE → **Configure** exposes one setting:
 
-- `permanent_connection` (default off) — hold a BLE session open and read the actual lock state immediately after connecting, then wait two seconds between completed reads. These requests can prevent the firmware from closing an idle session, keeping push notifications available; they also reconcile the bolt position when a notification is missed. A dropped connection is still reopened immediately. The reads add BLE traffic and processing on the lock; battery impact has not been measured. With the option off there are no periodic state reads or background reconnects.
+- `permanent_connection` (default off) — hold a BLE session open and read the actual lock state immediately after connecting, then wait two seconds between completed reads. These requests can prevent the firmware from closing an idle session, keeping push notifications available; they also reconcile the bolt position when a notification is missed. While the session is held the lock stops advertising, so the operation log is read after every push instead. A dropped connection is still reopened immediately. The reads add BLE traffic and processing on the lock; battery impact has not been measured. With the option off there are no periodic state reads or background reconnects.
 
 There is no polling interval or reconnect pacing to configure. Earlier releases exposed `scan_interval` and `reconnect_interval`; both are gone. Periodic reads run only with `permanent_connection` enabled; otherwise state arrives from advertisements and sessions open on demand.
 
