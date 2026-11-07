@@ -589,12 +589,14 @@ class TtlockBleConnection:
         backoff = RECONNECT_INITIAL_BACKOFF
         while not self._closing:
             try:
+                # Stamped before the read, so a push dispatched while it is
+                # in flight is newer than the answer and is not overwritten.
+                observed_at = time.monotonic()
                 result = await self.async_query_state()
                 if result is None:
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, RECONNECT_MAX_BACKOFF)
                     continue
-                observed_at = time.monotonic()
                 raw_state, battery = result
                 LOGGER.debug(
                     "Permanent state read for %s (lock_state=%s battery=%s)",

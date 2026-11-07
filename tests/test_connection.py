@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -132,6 +133,38 @@ async def test_permanent_reads_recover_changes_without_pushes(
     assert mock_ttlock_client.query_state.await_count == reads_at_stop == 4
     mock_ttlock_client.lock.assert_not_awaited()
     mock_ttlock_client.unlock.assert_not_awaited()
+
+
+async def test_permanent_read_is_stamped_before_the_query(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    observed = []
+    read = asyncio.Event()
+    query_started_at = []
+
+    @callback
+    def on_state(_raw_state, observed_at) -> None:
+        observed.append(observed_at)
+        read.set()
+
+    async def query_state() -> tuple[LockState, int]:
+        query_started_at.append(time.monotonic())
+        await asyncio.sleep(0.01)
+        return (LockState.LOCKED, 88)
+
+    async_dispatcher_connect(hass, state_signal(sample_virtual_key.lockMac), on_state)
+    mock_ttlock_client.query_state.side_effect = query_state
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_start()
+    try:
+        async with asyncio.timeout(5):
+            await read.wait()
+    finally:
+        await conn.async_stop()
+    assert observed[0] <= query_started_at[0]
 
 
 async def test_permanent_read_failure_reconnects_and_recovers(
