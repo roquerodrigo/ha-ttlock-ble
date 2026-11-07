@@ -245,6 +245,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         snapshot: TtlockBleLockState = {
             "locked": locked,
             "battery_level": advertisement.battery,
+            "battery_advertised": True,
             "observed_at": observed_at,
         }
         self.async_set_updated_data({**(self.data or {}), mac: snapshot})

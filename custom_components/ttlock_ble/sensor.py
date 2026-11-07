@@ -134,12 +134,25 @@ class TtlockBleBatterySensor(TtlockBleEntity, SensorEntity):
         self.async_write_ha_state()
 
     def _sync_from_coordinator(self) -> None:
-        """Copy `battery_level` from the coordinator snapshot, if known."""
+        """
+        Copy `battery_level` from the coordinator snapshot, if known.
+
+        An advertised level is adopted only while nothing is known or when
+        it is not above the current one; a rise has to come from the lock's
+        own reply, a poll or a push.
+        """
         state = self._lock_state
         if state is None:
             return
         battery = state.get("battery_level")
         if battery is None:
+            return
+        current = self._attr_native_value
+        if (
+            state.get("battery_advertised")
+            and current is not None
+            and battery > current
+        ):
             return
         self._attr_native_value = battery
 

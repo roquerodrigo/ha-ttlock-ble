@@ -168,6 +168,79 @@ async def test_battery_sensor_ignores_push_event_without_battery(
     assert hass.states.get(state.entity_id).state == "80"
 
 
+def _publish_battery(entry, mac, battery, *, advertised):
+    """Publish a snapshot carrying `battery`, as an advertisement or a poll would."""
+    coordinator = entry.runtime_data.coordinator
+    snapshot = {"locked": True, "battery_level": battery}
+    if advertised:
+        snapshot["battery_advertised"] = True
+    coordinator.async_set_updated_data({**(coordinator.data or {}), mac: snapshot})
+
+
+async def test_battery_sensor_ignores_an_advertised_rise(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """The post-session advertisement carrying the hard-coded 100% must not stick."""
+    state = _battery_state(hass)
+    assert state.state == "80"
+    _publish_battery(
+        setup_integration, sample_virtual_key.lockMac, 100, advertised=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "80"
+
+
+async def test_battery_sensor_follows_an_advertised_drop(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    state = _battery_state(hass)
+    _publish_battery(setup_integration, sample_virtual_key.lockMac, 79, advertised=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "79"
+
+
+async def test_battery_sensor_follows_a_polled_rise(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    """The lock's own reply is what reports fresh batteries."""
+    state = _battery_state(hass)
+    _publish_battery(
+        setup_integration, sample_virtual_key.lockMac, 100, advertised=False
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "100"
+
+
+async def test_battery_sensor_follows_a_pushed_rise_over_an_advertisement(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    from ttlock_ble import LockEvent
+
+    from custom_components.ttlock_ble.connection import event_signal
+
+    state = _battery_state(hass)
+    _publish_battery(setup_integration, sample_virtual_key.lockMac, 70, advertised=True)
+    async_dispatcher_send(
+        hass,
+        event_signal(sample_virtual_key.lockMac),
+        LockEvent.from_payload(0x14, 1, bytes.fromhex("5a0102")),  # battery=0x5a
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "90"
+    _publish_battery(setup_integration, sample_virtual_key.lockMac, 95, advertised=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(state.entity_id).state == "90"
+
+
 async def test_battery_sensor_is_diagnostic(
     hass,
     setup_integration,
@@ -208,6 +281,34 @@ def test_battery_sync_from_coordinator_no_snapshot_keeps_value(
     entity._attr_native_value = 64
     entity._sync_from_coordinator()
     assert entity.native_value == 64
+
+
+def test_battery_sync_adopts_an_advertisement_while_nothing_is_known(
+    hass,
+    sample_virtual_key,
+) -> None:
+    """With no reading yet, an advertised level is the best there is."""
+
+    from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
+    from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
+    from custom_components.ttlock_ble.credential_store import TtlockBleCredentialStore
+    from custom_components.ttlock_ble.device_description_store import (
+        TtlockBleDeviceDescriptionStore,
+    )
+    from custom_components.ttlock_ble.sensor import TtlockBleBatterySensor
+
+    coordinator = TtlockBleDataUpdateCoordinator(
+        hass,
+        {},
+        TtlockBleDeviceDescriptionStore(hass),
+        TtlockBleClockSyncStore(hass),
+        TtlockBleCredentialStore(hass),
+    )
+    coordinator.data = {
+        sample_virtual_key.lockMac: {"battery_level": 100, "battery_advertised": True},
+    }
+    entity = TtlockBleBatterySensor(coordinator, sample_virtual_key)
+    assert entity.native_value == 100
 
 
 async def test_last_seen_sensor_created_for_each_key(hass, setup_integration) -> None:

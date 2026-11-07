@@ -131,6 +131,7 @@ Two details are load-bearing:
 
 - The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
 - An advertisement that decodes reaches the entities via `async_set_updated_data`. Nothing here opens a session and nothing falls back to one.
+- Its battery may lower the sensor, never raise it. About a minute after a BLE session the firmware advertises once with the battery byte set to the standard GATT battery characteristic, which some firmware hard-codes to 100% (the SDK reads it only to wake the notify pipeline). The snapshot carries `battery_advertised` so the sensor can tell; a rise, fresh batteries included, comes from the lock's own reply on a poll or a push.
 
 An advertisement we cannot decode, or one from a dormant lock, carries no bolt position. While none is known at all the coordinator reads one over BLE — being heard is proof the lock is in range, which is the one moment a connect is worth attempting — rate-limited by `STATE_PROBE_COOLDOWN_SECONDS` so a lock that keeps refusing is not connected to on every advertisement it sends, and disarmed the moment a position becomes known. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
 
