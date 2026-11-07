@@ -108,6 +108,7 @@ class TtlockBleConnection:
         self._task: asyncio.Task[None] | None = None
         self._closing = False
         self._disconnected = asyncio.Event()
+        self._operation_log_requested = False
         cursor = log_cursor or TtlockBleLogCursor()
         self._seen_records: set[int] = set(cursor.records)
         self._log_seeded = cursor.seeded
@@ -559,7 +560,15 @@ class TtlockBleConnection:
         )
 
     def _on_event(self, event: LockEvent) -> None:
-        """Forward a push event onto HA's dispatcher (called by the BLE layer)."""
+        """
+        Forward a push event onto HA's dispatcher (called by the BLE layer).
+
+        A held session silences the lock's advertisements, and with them
+        the unsynced-records flag the coordinator reads the log on, so the
+        permanent loop reads it itself after every push.
+        """
+        if self._task is not None:
+            self._operation_log_requested = True
         async_dispatcher_send(
             self._hass,
             event_signal(self._key.lockMac),
@@ -585,10 +594,17 @@ class TtlockBleConnection:
         State reads keep idle firmware responsive and recover missed
         notifications. They share the command lock and never move the bolt.
         A disconnect interrupts the wait so reconnection is immediate.
+
+        The operation log is read after each (re)connect and after each
+        push: while the session is held the lock does not advertise, so
+        the coordinator never sees the flag that would make it read the
+        log, and the records of operations at the door would wait for the
+        next command.
         """
         backoff = RECONNECT_INITIAL_BACKOFF
         while not self._closing:
             try:
+                reconnecting = not self.is_connected
                 # Stamped before the read, so a push dispatched while it is
                 # in flight is newer than the answer and is not overwritten.
                 observed_at = time.monotonic()
@@ -611,6 +627,9 @@ class TtlockBleConnection:
                         raw_state,
                         observed_at,
                     )
+                if reconnecting or self._operation_log_requested:
+                    self._operation_log_requested = False
+                    await self.async_get_operation_log()
                 backoff = RECONNECT_INITIAL_BACKOFF
                 # A disconnect wakes this immediately; an idle live session
                 # gets another real read after the interval expires.

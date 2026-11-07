@@ -167,6 +167,71 @@ async def test_permanent_read_is_stamped_before_the_query(
     assert observed[0] <= query_started_at[0]
 
 
+async def test_permanent_loop_reads_log_after_connect_and_each_push(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    log_read = asyncio.Event()
+    three_reads_since_log = asyncio.Event()
+    reads_since_log = 0
+
+    async def query_state() -> tuple[LockState, int]:
+        nonlocal reads_since_log
+        reads_since_log += 1
+        if reads_since_log >= 3:
+            three_reads_since_log.set()
+        return (LockState.LOCKED, 88)
+
+    async def get_operation_log(**_kwargs) -> list:
+        nonlocal reads_since_log
+        reads_since_log = 0
+        three_reads_since_log.clear()
+        log_read.set()
+        return []
+
+    mock_ttlock_client.query_state.side_effect = query_state
+    mock_ttlock_client.get_operation_log.side_effect = get_operation_log
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with patch(
+        "custom_components.ttlock_ble.connection.PERMANENT_STATE_REFRESH_SECONDS", 0.01
+    ):
+        await conn.async_start()
+        try:
+            async with asyncio.timeout(5):
+                await log_read.wait()
+                await three_reads_since_log.wait()
+            assert mock_ttlock_client.get_operation_log.await_count == 1
+
+            log_read.clear()
+            listener = mock_ttlock_client.add_event_listener.call_args.args[0]
+            listener(LockEvent.from_payload(0x14, 1, bytes([88, 1, 2])))
+            async with asyncio.timeout(5):
+                await log_read.wait()
+                await three_reads_since_log.wait()
+            assert mock_ttlock_client.get_operation_log.await_count == 2
+        finally:
+            await conn.async_stop()
+
+
+async def test_push_without_permanent_loop_reads_no_log(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    try:
+        await conn.async_query_state()
+        listener = mock_ttlock_client.add_event_listener.call_args.args[0]
+        listener(LockEvent.from_payload(0x14, 1, bytes([88, 1, 2])))
+        await hass.async_block_till_done()
+        mock_ttlock_client.get_operation_log.assert_not_awaited()
+    finally:
+        await conn.async_stop()
+
+
 async def test_permanent_read_failure_reconnects_and_recovers(
     hass,
     sample_virtual_key,
