@@ -20,6 +20,12 @@ class TtlockBleLockState(TypedDict):
 
     locked: NotRequired[bool | None]
     battery_level: NotRequired[int | None]
+    # Set when `battery_level` came from an advertisement rather than from
+    # the lock's own reply. Right after a BLE session the firmware
+    # advertises the standard battery characteristic once, which some
+    # firmware hard-codes to 100%, so the sensor lets this source lower the
+    # reading but never raise it.
+    battery_advertised: NotRequired[bool]
     # `time.monotonic()` at the moment `locked` was read off the lock, not
     # when it was published. A poll reads the bolt the instant a command
     # returns and publishes it seconds later, so only the read time says

@@ -180,6 +180,7 @@ async def test_apply_advertisement_publishes_state_without_polling(
     state = coordinator.data[sample_virtual_key.lockMac]
     assert state["locked"] is False
     assert state["battery_level"] == 66
+    assert state["battery_advertised"] is True
     conn.async_query_state.assert_not_awaited()
 
 
