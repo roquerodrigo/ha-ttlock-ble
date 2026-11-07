@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.12.2](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.12.1...v3.12.2) (2026-11-07)
+
+The battery sensor now stays accurate after Bluetooth sessions, and the permanent connection option keeps lock state and history more reliably up to date.
+
+### Improvements
+
+- With permanent connection enabled, the lock's state is read every two seconds to recover missed updates; the battery impact has not been measured. ([#154](https://github.com/roquerodrigo/ha-ttlock-ble/pull/154))
+
+### Bug fixes
+
+- The battery sensor no longer jumps to 100% for a few seconds after each Bluetooth session, or flickers between 100% and the real level. ([#156](https://github.com/roquerodrigo/ha-ttlock-ble/pull/156))
+- Fingerprint unlocks and auto-lock updates are no longer missed intermittently, including notifications that arrive while the Bluetooth connection is being set up. ([#154](https://github.com/roquerodrigo/ha-ttlock-ble/pull/154))
+- With permanent connection enabled, operations performed at the lock appear in Home Assistant without waiting for the next command. ([#154](https://github.com/roquerodrigo/ha-ttlock-ble/pull/154))
+
 ## [3.12.1](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.12.0...v3.12.1) (2026-11-05)
 
 ### Bug fixes
