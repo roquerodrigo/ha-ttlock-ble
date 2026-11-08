@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) agents working in this repository.
-
 ## Always read `CODE_STYLE.md` first
 
 Before creating, renaming or restructuring any file/class/function, **read [`CODE_STYLE.md`](./CODE_STYLE.md)**. It is the single source of truth for conventions: language, file organisation, naming, typing, properties vs `__init__`, imports, docstrings, comments, coordinator pattern, diagnostics layout, translations, lint workflow.
@@ -41,11 +39,9 @@ If these two pins diverge, the tests would pass against an SDK version users nev
 
 ## Architecture
 
-The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py` publishes advertised state as it arrives with no polling interval, `connection.py` opens a BLE session only on demand (one `TtlockBleConnection` per lock), and `advertisement.py` decodes state + battery from advertisements HA's bluetooth manager already receives without connecting. The subsections below cover the reasoning that the module names do not.
-
 ### Entry typing
 
-`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 The four stores are the deliberate exception: `record_store.py`, `device_description_store.py`, `clock_sync_store.py` and `credential_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
 
@@ -127,7 +123,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 This is the **only** channel that reports an auto-lock: the firmware writes no operation-log record for it, and the lock drops the BLE session it pushes events on within seconds of going idle. The same applies to anything done from the official app or the keypad while we are not connected.
 
-Two details are load-bearing:
+Three details are load-bearing:
 
 - The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
 - An advertisement that decodes reaches the entities via `async_set_updated_data`. Nothing here opens a session and nothing falls back to one.
@@ -135,7 +131,7 @@ Two details are load-bearing:
 
 An advertisement we cannot decode, or one from a dormant lock, carries no bolt position. While none is known at all the coordinator reads one over BLE — being heard is proof the lock is in range, which is the one moment a connect is worth attempting — rate-limited by `STATE_PROBE_COOLDOWN_SECONDS` so a lock that keeps refusing is not connected to on every advertisement it sends, and disarmed the moment a position becomes known. Until the lock is heard awake the entity reports `unknown`, which is what is actually known — the bolt position is not something anyone can state before the lock does.
 
-The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip.
+The diagnostics dump carries the last advertisement per lock, raw bytes included, with `decoded: null` when the payload does not match the layout we know — that is what makes a "state never updates" report answerable without a round trip. `diagnostics.py` redacts the entry's credentials and keys through `TO_REDACT`, and `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
 
 ### Device description
 
@@ -198,7 +194,3 @@ Every fingerprint, card and passcode a lock is known to hold gets a `text` entit
 
 - **It is created by the first door record, not at setup.** The key's feature bits only say the lock *supports* a sensor, not that one is paired, and a manual key carries none. Once registered, setup creates it straight away and `RestoreEntity` brings back the last state, because a door record may not come for days.
 - **One listener per lock feeds it, before and after it exists.** Records are dispatched in a synchronous batch; an entity that subscribed itself once added would miss the rest of the batch that created it, and an "opened, closed" pair would leave it reporting open.
-
-### Diagnostics
-
-`diagnostics.py` returns `TtlockBleDiagnosticsPayload`, with the entry's credentials and keys redacted through `TO_REDACT`. `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.
