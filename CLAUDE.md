@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) agents working in this repository.
-
 ## Always read `CODE_STYLE.md` first
 
 Before creating, renaming or restructuring any file/class/function, **read [`CODE_STYLE.md`](./CODE_STYLE.md)**. It is the single source of truth for conventions: language, file organisation, naming, typing, properties vs `__init__`, imports, docstrings, comments, coordinator pattern, diagnostics layout, translations, lint workflow.
@@ -41,11 +39,9 @@ If these two pins diverge, the tests would pass against an SDK version users nev
 
 ## Architecture
 
-The integration follows the HA `DataUpdateCoordinator` pattern: `coordinator.py` publishes advertised state as it arrives with no polling interval, `connection.py` opens a BLE session only on demand (one `TtlockBleConnection` per lock), and `advertisement.py` decodes state + battery from advertisements HA's bluetooth manager already receives without connecting. The subsections below cover the reasoning that the module names do not.
-
 ### Entry typing
 
-`data/` is a package, one class per file, re-exported from `data/__init__.py`. `data/__init__.py` defines `TtlockBleConfigEntry = ConfigEntry[TtlockBleData]`; `data/runtime.py` defines the `TtlockBleData(keys, virtual_keys, connections, coordinator, bluetooth_unsubs)` dataclass; `data/log_cursor.py` defines `TtlockBleLogCursor(records, seeded, on_move)`, which `record_store.py` fills and each connection resumes its operation log from. State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
+State lives on `entry.runtime_data` (auto-discarded on unload), never on `hass.data`.
 
 The four stores are the deliberate exception: `record_store.py`, `device_description_store.py`, `clock_sync_store.py` and `credential_store.py` each expose a `singleton`-decorated getter, so one instance is shared per Home Assistant instance rather than per entry. Their files are keyed by MAC and hold every lock of every entry, and an instance writes the whole file from what it loaded — two of them would take turns dropping what the other had written since.
 
@@ -127,7 +123,7 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 This is the **only** channel that reports an auto-lock: the firmware writes no operation-log record for it, and the lock drops the BLE session it pushes events on within seconds of going idle. The same applies to anything done from the official app or the keypad while we are not connected.
 
-Two details are load-bearing:
+Three details are load-bearing:
 
 - The decoded trailing address must equal the lock's MAC. A payload long enough to decode is not proof it is a TTLock payload, and that address is the only field whose value can be checked independently.
 - An advertisement that decodes reaches the entities via `async_set_updated_data`. Nothing here opens a session and nothing falls back to one.
