@@ -18,6 +18,7 @@ import custom_components.ttlock_ble.api
 import custom_components.ttlock_ble.connection
 import custom_components.ttlock_ble.coordinator
 import custom_components.ttlock_ble.lock  # noqa: F401
+from custom_components.ttlock_ble.connection_quality import TtlockBleConnectionQuality
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -185,6 +186,7 @@ def mock_ttlock_connection(sample_virtual_key: VirtualKey) -> Generator[MagicMoc
     instance.async_unlock = AsyncMock(return_value=None)
     instance.async_set_lock_sound = AsyncMock(return_value=None)
     instance.is_connected = True
+    instance.quality = TtlockBleConnectionQuality()
     with patch("custom_components.ttlock_ble.TtlockBleConnection") as cls:
         cls.return_value = instance
         yield instance

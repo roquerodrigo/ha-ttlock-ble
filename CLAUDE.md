@@ -117,6 +117,13 @@ Every cloud call in the flow, `_async_fetch_keys` included, maps its exceptions 
 
 `sensor.py`'s `TtlockBleLastSeenSensor` re-reads `async_last_service_info` on a timer of its own instead of following the advertisement callback. The timer is deliberately not `should_poll`: on a `CoordinatorEntity` polling calls `async_request_refresh`, which opens a BLE session — turning a read of local memory into a connection to the lock every refresh interval. HA's bluetooth manager does not dispatch an advertisement whose payload matches the previous one, and an idle lock repeats the same bytes for as long as nothing about it changes — so a callback-driven sensor stops moving exactly while the lock is healthy. The manager updates `_all_history` before that short-circuit, so the history is the honest source. The stored time is monotonic and is cached against on read, otherwise every poll would walk the timestamp and write a new state for an advertisement that never changed.
 
+### Connection quality sensors
+
+`sensor.py` adds three diagnostics per lock. `TtlockBleSignalStrengthSensor` reads the RSSI and scanner of the last advertisement from `async_last_service_info` on the same kind of timer as the last-seen sensor, for the same reasons. `TtlockBleConnectTimeSensor` and `TtlockBleConnectionSuccessRateSensor` read `TtlockBleConnectionQuality` (`connection_quality.py`), which `connection.py` feeds from `_async_ensure_connected_locked` and announces on `ttlock_ble_quality_<mac>`. Two choices shape it:
+
+- **Only attempts that reached the radio count.** A lock no scanner has heard is never dialled; counting that as a failure would make the rate report presence, which is the last-seen sensor's job, and an idle lock out of the connectable scanners' recent history would read as a broken link.
+- **The window lives in memory.** It is the last `CONNECTION_ATTEMPT_WINDOW` attempts of this run; a rate carried across a restart would describe a link that may since have changed proxy.
+
 ### Passive advertisement tracking
 
 `advertisement.py` defines `TtlockBleAdvertisementTracker`, subscribed per MAC through HA's `async_register_callback`. The firmware folds the bolt position, a "new records pending" flag and the battery percentage into the manufacturer data of every advertisement, so `LockAdvertisement.from_manufacturer_data` (SDK) turns them into state for free.

@@ -24,6 +24,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from ttlock_ble import TTLockClient, TTLockError
 
+from .connection_quality import TtlockBleConnectionQuality
 from .const import DOMAIN, LOGGER
 from .data import TtlockBleLogCursor
 
@@ -81,6 +82,11 @@ def connection_signal(mac: str) -> str:
     return f"{DOMAIN}_connection_{mac.lower()}"
 
 
+def quality_signal(mac: str) -> str:
+    """Dispatcher signal fired after every BLE session attempt for `mac`."""
+    return f"{DOMAIN}_quality_{mac.lower()}"
+
+
 class TtlockBleConnection:
     """Maintain a long-lived BLE session with one TTLock lock."""
 
@@ -114,11 +120,17 @@ class TtlockBleConnection:
         self._log_seeded = cursor.seeded
         self._on_records_seen = cursor.on_move
         self._broadcast_connected = False
+        self._quality = TtlockBleConnectionQuality()
 
     @property
     def key(self) -> VirtualKey:
         """Return the `VirtualKey` this connection wraps."""
         return self._key
+
+    @property
+    def quality(self) -> TtlockBleConnectionQuality:
+        """Return how the recent session attempts with this lock went."""
+        return self._quality
 
     @property
     def is_connected(self) -> bool:
@@ -510,6 +522,7 @@ class TtlockBleConnection:
         )
         # Notifications can arrive before connect() returns.
         client.add_event_listener(self._on_event)
+        started_at = time.monotonic()
         try:
             await client.connect()
         except Exception as exc:  # noqa: BLE001
@@ -525,7 +538,11 @@ class TtlockBleConnection:
             LOGGER.debug("BLE connect failed for %s: %s", self._key.lockMac, exc)
             with contextlib.suppress(Exception):
                 await client.disconnect()
+            self._quality.record_failure()
+            self._broadcast_quality()
             return None
+        self._quality.record_success(time.monotonic() - started_at)
+        self._broadcast_quality()
         self._client = client
         self._disconnected.clear()
         self._broadcast_connection_state(connected=True)
@@ -558,6 +575,10 @@ class TtlockBleConnection:
             connection_signal(self._key.lockMac),
             connected,
         )
+
+    def _broadcast_quality(self) -> None:
+        """Notify subscribers that another session attempt was recorded."""
+        async_dispatcher_send(self._hass, quality_signal(self._key.lockMac))
 
     def _on_event(self, event: LockEvent) -> None:
         """

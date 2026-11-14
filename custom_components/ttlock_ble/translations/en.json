@@ -166,6 +166,12 @@
       "clock_drift": {
         "name": "Clock drift"
       },
+      "connect_time": {
+        "name": "Connection time"
+      },
+      "connection_success_rate": {
+        "name": "Connection success rate"
+      },
       "fingerprint_count": {
         "name": "Enrolled fingerprints"
       },
@@ -174,6 +180,9 @@
       },
       "last_unlocked_by": {
         "name": "Last unlocked by"
+      },
+      "signal_strength": {
+        "name": "Signal strength"
       }
     },
     "switch": {
