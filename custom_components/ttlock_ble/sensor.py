@@ -53,6 +53,12 @@ if TYPE_CHECKING:
 # wire: it only looks at what the bluetooth manager already holds.
 ADVERTISEMENT_HISTORY_REFRESH_INTERVAL = timedelta(seconds=30)
 
+# The RSSI range mapped onto 0-100% by the signal quality sensor: the
+# usual linear scale, where anything weaker than the floor is unusable
+# and anything stronger than the ceiling is as good as it gets.
+SIGNAL_QUALITY_FLOOR_DBM = -100
+SIGNAL_QUALITY_CEILING_DBM = -50
+
 # Unlock records that name who unlocked. A door sensor reporting the door
 # open is filed as an unlock too, but it follows the unlock that opened
 # it, and would otherwise replace whoever that was with nobody.
@@ -76,6 +82,7 @@ async def async_setup_entry(
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
             TtlockBleSignalStrengthSensor(data.coordinator, key),
+            TtlockBleSignalQualitySensor(data.coordinator, key),
             TtlockBleConnectTimeSensor(data.coordinator, key),
             TtlockBleConnectionSuccessRateSensor(data.coordinator, key),
             TtlockBleClockDriftSensor(data.coordinator, key),
@@ -311,7 +318,7 @@ class TtlockBleSignalStrengthSensor(TtlockBleEntity, SensorEntity):
     """
 
     _attr_translation_key = "signal_strength"
-    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_device_class: SensorDeviceClass | None = SensorDeviceClass.SIGNAL_STRENGTH
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -365,6 +372,40 @@ class TtlockBleSignalStrengthSensor(TtlockBleEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, str] | None:
         """Carry the scanner that heard the advertisement."""
         return None if self._source is None else {"source": self._source}
+
+
+class TtlockBleSignalQualitySensor(TtlockBleSignalStrengthSensor):
+    """
+    The signal strength of the lock's last advertisement, as a percentage.
+
+    The same reading as the signal strength sensor, mapped linearly from
+    `SIGNAL_QUALITY_FLOOR_DBM` (0%) to `SIGNAL_QUALITY_CEILING_DBM`
+    (100%) and clamped. It is a separate entity because the signal
+    strength device class only accepts decibel units.
+    """
+
+    _attr_translation_key = "signal_quality"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:signal"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_signal_quality"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the last RSSI as a percentage of the usable range."""
+        rssi = super().native_value
+        return None if rssi is None else rssi_to_percentage(rssi)
+
+
+def rssi_to_percentage(rssi: int) -> int:
+    """Map `rssi` linearly onto the usable range, clamped to 0-100."""
+    span = SIGNAL_QUALITY_CEILING_DBM - SIGNAL_QUALITY_FLOOR_DBM
+    percentage = round(100 * (rssi - SIGNAL_QUALITY_FLOOR_DBM) / span)
+    return max(0, min(100, percentage))
 
 
 class TtlockBleConnectTimeSensor(TtlockBleEntity, SensorEntity):

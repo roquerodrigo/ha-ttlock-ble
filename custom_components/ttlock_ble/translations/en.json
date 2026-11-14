@@ -181,6 +181,9 @@
       "last_unlocked_by": {
         "name": "Last unlocked by"
       },
+      "signal_quality": {
+        "name": "Signal quality"
+      },
       "signal_strength": {
         "name": "Signal strength"
       }

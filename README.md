@@ -26,7 +26,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
 - **Connects only on demand** — nothing is held open. A session is opened when a command needs the lock, when the lock advertises that it has records worth reading, or when the permanent connection option asks for one.
 - **Reauth + reconfigure** — re-prompt for credentials in place when the cloud rejects the cached login, or edit them via the integration's three-dot menu.
-- **Connection quality** — diagnostic sensors for the signal strength of the lock's advertisements (and the adapter or proxy that heard them), how long the last BLE session took to come up, and how many recent session attempts succeeded.
+- **Connection quality** — diagnostic sensors for the signal strength of the lock's advertisements, in dBm and as a percentage (and the adapter or proxy that heard them), how long the last BLE session took to come up, and how many recent session attempts succeeded.
 - **Diagnostics** — downloadable dump with credentials/keys redacted.
 - **Translations** — English, Brazilian Portuguese and Hebrew (parity enforced by tests).
 
@@ -43,6 +43,7 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
 | `sensor.<alias>_signal_strength` | `sensor` | RSSI of the lock's last advertisement, in dBm, read from HA's own advertisement history (diagnostic). The `source` attribute names the adapter or proxy that heard it. While a session is held the lock does not advertise, so the reading is the one from before it opened. |
+| `sensor.<alias>_signal_quality` | `sensor` | The same reading as a percentage, mapped linearly from −100 dBm (0%) to −50 dBm (100%) and clamped (diagnostic). |
 | `sensor.<alias>_connection_time` | `sensor` | How long the last BLE session took to come up, in seconds (diagnostic). `unknown` until a session has been opened. |
 | `sensor.<alias>_connection_success_rate` | `sensor` | Share of the last 20 BLE session attempts that came up, in percent, with `attempts` and `failures` as attributes (diagnostic). Only attempts actually made count: a lock no scanner has heard is not dialled. Starts over on every restart. |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |

@@ -69,7 +69,7 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 9
+    assert len(hass.states.async_all("sensor")) == 10
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -993,7 +993,7 @@ async def test_connection_quality_follows_every_session_attempt(
 
 @pytest.mark.parametrize(
     "suffix",
-    ["signal_strength", "connect_time", "connection_success_rate"],
+    ["signal_strength", "signal_quality", "connect_time", "connection_success_rate"],
 )
 async def test_connection_quality_sensors_are_diagnostic(
     hass,
@@ -1005,3 +1005,52 @@ async def test_connection_quality_sensors_are_diagnostic(
     state = _state_by_unique_id(hass, suffix)
     entry = er.async_get(hass).async_get(state.entity_id)
     assert entry.entity_category == "diagnostic"
+
+
+@pytest.mark.parametrize(
+    ("rssi", "percentage"),
+    [(-120, 0), (-100, 0), (-73, 54), (-50, 100), (-30, 100)],
+)
+def test_rssi_maps_linearly_onto_the_usable_range(rssi, percentage) -> None:
+    from custom_components.ttlock_ble.sensor import rssi_to_percentage
+
+    assert rssi_to_percentage(rssi) == percentage
+
+
+async def test_signal_quality_is_unknown_while_nothing_was_ever_received(
+    hass,
+    setup_integration,
+) -> None:
+    assert _state_by_unique_id(hass, "signal_quality").state in (
+        "unknown",
+        "unavailable",
+    )
+
+
+async def test_signal_quality_reports_the_rssi_as_a_percentage(
+    hass,
+    setup_integration,
+) -> None:
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+
+    state = _state_by_unique_id(hass, "signal_quality")
+    with (
+        patch(
+            "custom_components.ttlock_ble.sensor.async_last_service_info",
+            return_value=_service_info(rssi=-73, source="hci0"),
+        ),
+        patch(
+            "custom_components.ttlock_ble.sensor.async_scanner_by_source",
+            return_value=None,
+        ),
+    ):
+        _added_entity(hass, state.entity_id)._async_reread_history(dt_util.utcnow())
+        await hass.async_block_till_done()
+
+    written = hass.states.get(state.entity_id)
+    assert written.state == "54"
+    assert written.attributes["unit_of_measurement"] == "%"
+    assert "device_class" not in written.attributes
+    assert written.attributes["source"] == "hci0"

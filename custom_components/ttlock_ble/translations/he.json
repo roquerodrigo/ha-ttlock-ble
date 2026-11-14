@@ -181,6 +181,9 @@
       "last_unlocked_by": {
         "name": "נפתח לאחרונה על ידי"
       },
+      "signal_quality": {
+        "name": "איכות אות"
+      },
       "signal_strength": {
         "name": "עוצמת אות"
       }
