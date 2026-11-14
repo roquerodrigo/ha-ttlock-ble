@@ -661,6 +661,66 @@ async def test_last_unlocked_by_names_home_assistant(
     assert state.attributes["credential_type"] == "app"
 
 
+def _note_unlock(hass, mac, user_name) -> None:
+    import datetime as dt
+
+    from custom_components.ttlock_ble.const import DOMAIN
+    from custom_components.ttlock_ble.data import TtlockBleIssuedCommand
+    from custom_components.ttlock_ble.lock_command import TtlockBleLockCommand
+
+    stamped_at = dt.datetime(2026, 10, 28, 10, 0)  # noqa: DTZ001 — lock RTC is naive
+    hass.config_entries.async_entries(DOMAIN)[0].runtime_data.command_journal.note(
+        mac,
+        TtlockBleIssuedCommand(
+            command=TtlockBleLockCommand.UNLOCK,
+            started_at=stamped_at,
+            confirmed_at=stamped_at,
+            user_name=user_name,
+        ),
+    )
+
+
+async def test_last_unlocked_by_names_the_user_behind_home_assistant(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    _note_unlock(hass, sample_virtual_key.lockMac, "Alice")
+    await _record(hass, sample_virtual_key.lockMac, LogOperate.MOBILE_UNLOCK, uid=4242)
+
+    state = hass.states.get(LAST_UNLOCKED_BY)
+    assert state.state == "Alice (via Home Assistant)"
+    assert state.attributes["credential_type"] == "app"
+
+
+async def test_last_unlocked_by_names_home_assistant_for_a_command_with_no_user(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    _note_unlock(hass, sample_virtual_key.lockMac, None)
+    await _record(hass, sample_virtual_key.lockMac, LogOperate.MOBILE_UNLOCK, uid=4242)
+
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "Home Assistant"
+
+
+async def test_last_unlocked_by_is_unknown_for_an_unlock_from_the_official_app(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from ttlock_ble import LogOperate
+
+    _note_unlock(hass, sample_virtual_key.lockMac, "Alice")
+    await _record(
+        hass,
+        sample_virtual_key.lockMac,
+        LogOperate.MOBILE_UNLOCK,
+        minute=30,
+        uid=4242,
+    )
+
+    assert hass.states.get(LAST_UNLOCKED_BY).state == "unknown"
+
+
 async def test_last_unlocked_by_ignores_what_is_not_an_unlock(
     hass, setup_integration, sample_virtual_key
 ) -> None:

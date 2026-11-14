@@ -1012,6 +1012,7 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
     from unittest.mock import MagicMock
 
     from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
+    from custom_components.ttlock_ble.command_journal import TtlockBleCommandJournal
     from custom_components.ttlock_ble.coordinator import TtlockBleDataUpdateCoordinator
     from custom_components.ttlock_ble.credential_store import TtlockBleCredentialStore
     from custom_components.ttlock_ble.device_description_store import (
@@ -1027,8 +1028,102 @@ def test_lock_sync_from_coordinator_no_snapshot_keeps_state(
         TtlockBleCredentialStore(hass),
     )
     coordinator.data = {}
-    entity = TtlockBleLock(coordinator, sample_virtual_key, MagicMock())
+    entity = TtlockBleLock(
+        coordinator, sample_virtual_key, MagicMock(), TtlockBleCommandJournal()
+    )
     assert entity.is_locked is None
     entity._attr_is_locked = True
     entity._sync_from_coordinator()
     assert entity.is_locked is True
+
+
+async def _unlock_as(hass, context) -> None:
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    await hass.services.async_call(
+        LOCK_DOMAIN,
+        SERVICE_UNLOCK,
+        {"entity_id": hass.states.async_all("lock")[0].entity_id},
+        blocking=True,
+        context=context,
+    )
+
+
+def _journal(hass):
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    return hass.config_entries.async_entries(DOMAIN)[0].runtime_data.command_journal
+
+
+async def test_a_confirmed_command_is_noted_with_the_user_who_asked(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    hass_admin_user,
+) -> None:
+    from homeassistant.core import Context
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.ttlock_ble.lock_command import TtlockBleLockCommand
+
+    hass_admin_user.name = "Alice"
+    await _unlock_as(hass, Context(user_id=hass_admin_user.id))
+
+    now = dt_util.now().replace(tzinfo=None)
+    issued = _journal(hass).find(
+        sample_virtual_key.lockMac, TtlockBleLockCommand.UNLOCK, now
+    )
+    assert issued is not None
+    assert issued.user_name == "Alice"
+    assert issued.started_at <= issued.confirmed_at <= now
+    assert (
+        _journal(hass).find(sample_virtual_key.lockMac, TtlockBleLockCommand.LOCK, now)
+        is None
+    )
+
+
+async def test_a_command_with_no_user_is_noted_without_a_name(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.core import Context
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.ttlock_ble.lock_command import TtlockBleLockCommand
+
+    await _unlock_as(hass, Context())
+
+    issued = _journal(hass).find(
+        sample_virtual_key.lockMac,
+        TtlockBleLockCommand.UNLOCK,
+        dt_util.now().replace(tzinfo=None),
+    )
+    assert issued is not None
+    assert issued.user_name is None
+
+
+async def test_a_refused_command_is_not_noted(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    mock_ttlock_connection,
+) -> None:
+    from homeassistant.core import Context
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.ttlock_ble.lock_command import TtlockBleLockCommand
+
+    mock_ttlock_connection.async_unlock = AsyncMock(side_effect=TTLockError("boom"))
+    with pytest.raises(HomeAssistantError):
+        await _unlock_as(hass, Context())
+
+    assert (
+        _journal(hass).find(
+            sample_virtual_key.lockMac,
+            TtlockBleLockCommand.UNLOCK,
+            dt_util.now().replace(tzinfo=None),
+        )
+        is None
+    )

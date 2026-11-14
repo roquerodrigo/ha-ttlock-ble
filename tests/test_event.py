@@ -436,3 +436,38 @@ async def test_another_app_or_the_gateway_is_not_named(
     )
 
     assert "credential_name" not in attributes
+
+
+async def test_a_lock_sent_by_a_user_names_them_on_the_record(
+    hass, setup_integration, sample_virtual_key
+) -> None:
+    from custom_components.ttlock_ble.const import DOMAIN
+    from custom_components.ttlock_ble.data import TtlockBleIssuedCommand
+    from custom_components.ttlock_ble.lock_command import TtlockBleLockCommand
+
+    stamped_at = dt.datetime(2026, 10, 28, 10, 0)  # noqa: DTZ001 — lock RTC is naive
+    hass.config_entries.async_entries(DOMAIN)[0].runtime_data.command_journal.note(
+        sample_virtual_key.lockMac,
+        TtlockBleIssuedCommand(
+            command=TtlockBleLockCommand.LOCK,
+            started_at=stamped_at,
+            confirmed_at=stamped_at,
+            user_name="Alice",
+        ),
+    )
+    async_dispatcher_send(
+        hass,
+        log_signal(sample_virtual_key.lockMac),
+        LogEntry(
+            record_number=1,
+            record_type=int(LogOperate.OPERATE_BLE_LOCK),
+            operate_date=stamped_at,
+            lock_battery=80,
+            uid=4242,
+        ),
+    )
+    await hass.async_block_till_done()
+
+    assert (
+        _log_state(hass).attributes["credential_name"] == "Alice (via Home Assistant)"
+    )

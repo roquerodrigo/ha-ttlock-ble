@@ -74,7 +74,10 @@ async def async_setup_entry(
 ) -> None:
     """Create the per-lock sensors."""
     data = entry.runtime_data
-    resolver = TtlockBleCredentialResolver(await async_get_credential_store(hass))
+    resolver = TtlockBleCredentialResolver(
+        await async_get_credential_store(hass),
+        data.command_journal,
+    )
     async_add_entities(
         sensor
         for key in data.virtual_keys
@@ -553,7 +556,8 @@ class TtlockBleLastUnlockedBySensor(TtlockBleEntity, RestoreSensor):
 
     The state is the name of the credential when one is known — a named
     fingerprint, card or passcode, or `Home Assistant` for an unlock sent
-    by this integration — and otherwise its identifier: the number of a
+    by this integration, after the user who asked for it when there was
+    one — and otherwise its identifier: the number of a
     fingerprint or card nobody named yet, or the masked label of a
     passcode. Anything else reads `unknown`, with `credential_type`
     saying what was used.

@@ -47,7 +47,10 @@ async def async_setup_entry(
 ) -> None:
     """Create log-event entities per `VirtualKey`."""
     data = entry.runtime_data
-    resolver = TtlockBleCredentialResolver(await async_get_credential_store(hass))
+    resolver = TtlockBleCredentialResolver(
+        await async_get_credential_store(hass),
+        data.command_journal,
+    )
     async_add_entities(
         TtlockBleLogEvent(data.coordinator, key, resolver) for key in data.virtual_keys
     )

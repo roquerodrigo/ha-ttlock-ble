@@ -11,12 +11,15 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from ttlock_ble import LockState, TTLockError
 
 from .connection import event_signal, state_signal
 from .const import DOMAIN, LOGGER
+from .data import TtlockBleIssuedCommand
 from .entity import TtlockBleEntity
+from .lock_command import TtlockBleLockCommand
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
 
     from ttlock_ble import LockEvent, VirtualKey
 
+    from .command_journal import TtlockBleCommandJournal
     from .connection import TtlockBleConnection
     from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry
@@ -52,7 +56,12 @@ async def async_setup_entry(
     """Create one lock entity per known `VirtualKey`."""
     data = entry.runtime_data
     async_add_entities(
-        TtlockBleLock(data.coordinator, key, data.connections[key.lockMac])
+        TtlockBleLock(
+            data.coordinator,
+            key,
+            data.connections[key.lockMac],
+            data.command_journal,
+        )
         for key in data.virtual_keys
     )
 
@@ -111,10 +120,12 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         coordinator: TtlockBleDataUpdateCoordinator,
         key: VirtualKey,
         connection: TtlockBleConnection,
+        command_journal: TtlockBleCommandJournal,
     ) -> None:
         """Bind the entity to its connection + coordinator + key."""
         super().__init__(coordinator, key)
         self._connection = connection
+        self._command_journal = command_journal
         self._attr_is_locked = None
         self._attr_is_locking = False
         self._attr_is_unlocking = False
@@ -254,13 +265,13 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
 
     async def async_lock(self, **kwargs: Any) -> None:  # noqa: ARG002
         """Send LOCK over the persistent BLE connection."""
-        await self._async_run_command("lock")
+        await self._async_run_command(TtlockBleLockCommand.LOCK)
 
     async def async_unlock(self, **kwargs: Any) -> None:  # noqa: ARG002
         """Send UNLOCK over the persistent BLE connection."""
-        await self._async_run_command("unlock")
+        await self._async_run_command(TtlockBleLockCommand.UNLOCK)
 
-    async def _async_run_command(self, action: str) -> None:
+    async def _async_run_command(self, action: TtlockBleLockCommand) -> None:
         """
         Dispatch the BLE command, optimistically update state, refresh.
 
@@ -283,12 +294,14 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         already confirmed the command, which the caller of the service
         has no reason to sit through.
         """
+        user_name = await self._async_calling_user_name()
         async with self._command_lock:
             self._async_cancel_settle_timer()
             self._set_in_flight(action)
             moving = False
+            started_at = dt_util.now().replace(tzinfo=None)
             try:
-                if action == "lock":
+                if action is TtlockBleLockCommand.LOCK:
                     await self._connection.async_lock()
                 else:
                     await self._connection.async_unlock()
@@ -302,7 +315,16 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
                 msg = f"Failed to {action} {self._key.lockMac}: {exc}"
                 raise HomeAssistantError(msg) from exc
             else:
-                self._attr_is_locked = action == "lock"
+                self._command_journal.note(
+                    self._key.lockMac,
+                    TtlockBleIssuedCommand(
+                        command=action,
+                        started_at=started_at,
+                        confirmed_at=dt_util.now().replace(tzinfo=None),
+                        user_name=user_name,
+                    ),
+                )
+                self._attr_is_locked = action is TtlockBleLockCommand.LOCK
                 self._observed_at = time.monotonic()
                 self._settle_until = self._observed_at + COMMAND_SETTLE_SECONDS
                 self._settle_timer = async_call_later(
@@ -325,6 +347,13 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             self.coordinator.async_request_refresh(),
             "refresh_after_command",
         )
+
+    async def _async_calling_user_name(self) -> str | None:
+        """Return the name of the user whose service call is being served."""
+        if self._context is None or self._context.user_id is None:
+            return None
+        user = await self.hass.auth.async_get_user(self._context.user_id)
+        return None if user is None else user.name
 
     def _async_create_tracked_task(
         self,
@@ -372,10 +401,10 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         self._write_state_if_added()
         self._async_create_tracked_task(self._async_query_and_apply(), "query_state")
 
-    def _set_in_flight(self, action: str) -> None:
+    def _set_in_flight(self, action: TtlockBleLockCommand) -> None:
         """Publish the transitional state for a command that just started."""
-        self._attr_is_locking = action == "lock"
-        self._attr_is_unlocking = action != "lock"
+        self._attr_is_locking = action is TtlockBleLockCommand.LOCK
+        self._attr_is_unlocking = action is TtlockBleLockCommand.UNLOCK
         self._write_state_if_added()
 
     def _clear_in_flight(self) -> None:

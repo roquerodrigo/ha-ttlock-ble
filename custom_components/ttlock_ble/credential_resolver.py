@@ -9,10 +9,12 @@ from ttlock_ble import LogOperate
 from .credential_type import TtlockBleCredentialType
 from .data import TtlockBleEnrolledFingerprint, TtlockBleLogCredential
 from .data.known_credential import passcode_key
+from .lock_command import TtlockBleLockCommand
 
 if TYPE_CHECKING:
     from ttlock_ble import LogEntry
 
+    from .command_journal import TtlockBleCommandJournal
     from .credential_store import TtlockBleCredentialStore
 
 HOME_ASSISTANT_NAME = "Home Assistant"
@@ -42,24 +44,28 @@ PASSCODE_RECORD_TYPES: frozenset[int] = frozenset(
     },
 )
 
-# Commands sent over BLE by an app holding an eKey. This integration sends
-# them with a zeroed user id, while the official app sends its account's.
-BLE_APP_RECORD_TYPES: frozenset[int] = frozenset(
-    {
-        LogOperate.MOBILE_UNLOCK,
-        LogOperate.OPERATE_BLE_LOCK,
-        LogOperate.APP_UNLOCK_FAILED_LOCK_REVERSE,
-        LogOperate.APP_DEAD_LOCK,
-    },
-)
+# Commands sent over BLE by an app holding an eKey, by what they asked of
+# the bolt. This integration and the official app signed in to the same
+# account are filed alike, user id included.
+BLE_APP_RECORD_COMMANDS: dict[int, TtlockBleLockCommand] = {
+    LogOperate.MOBILE_UNLOCK: TtlockBleLockCommand.UNLOCK,
+    LogOperate.APP_UNLOCK_FAILED_LOCK_REVERSE: TtlockBleLockCommand.UNLOCK,
+    LogOperate.OPERATE_BLE_LOCK: TtlockBleLockCommand.LOCK,
+    LogOperate.APP_DEAD_LOCK: TtlockBleLockCommand.LOCK,
+}
 
 
 class TtlockBleCredentialResolver:
     """Tells the type, identifier and name of the credential behind a record."""
 
-    def __init__(self, credentials: TtlockBleCredentialStore) -> None:
-        """Bind to the store holding the names given to credentials."""
+    def __init__(
+        self,
+        credentials: TtlockBleCredentialStore,
+        commands: TtlockBleCommandJournal,
+    ) -> None:
+        """Bind to the names given to credentials and to the commands sent."""
         self._credentials = credentials
+        self._commands = commands
 
     def resolve(self, mac: str, record: LogEntry) -> TtlockBleLogCredential:
         """Return what `record`, read from the lock `mac`, says about its credential."""
@@ -99,7 +105,22 @@ class TtlockBleCredentialResolver:
     ) -> str | None:
         if credential_type is not None and key is not None:
             return self._credentials.name_of(mac, credential_type, key)
-        if record.record_type in BLE_APP_RECORD_TYPES and record.uid == 0:
+        return self._home_assistant_name_of(mac, record)
+
+    def _home_assistant_name_of(self, mac: str, record: LogEntry) -> str | None:
+        """
+        Name Home Assistant, and the user behind it, for a command of its own.
+
+        A record with a zeroed user id is from a key that has none, which
+        only this integration uses; the official app sends its account's.
+        """
+        command = BLE_APP_RECORD_COMMANDS.get(record.record_type)
+        if command is None:
+            return None
+        issued = self._commands.find(mac, command, record.operate_date)
+        if issued is not None and issued.user_name is not None:
+            return f"{issued.user_name} (via {HOME_ASSISTANT_NAME})"
+        if issued is not None or record.uid == 0:
             return HOME_ASSISTANT_NAME
         return None
 

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
     from ttlock_ble import VirtualKey
 
+    from ..command_journal import TtlockBleCommandJournal
     from ..connection import TtlockBleConnection
     from ..coordinator import TtlockBleDataUpdateCoordinator
     from .stored_key import TtlockBleStoredKey
@@ -24,3 +25,4 @@ class TtlockBleData:
     connections: dict[str, TtlockBleConnection]
     coordinator: TtlockBleDataUpdateCoordinator
     bluetooth_unsubs: list[CALLBACK_TYPE]
+    command_journal: TtlockBleCommandJournal
