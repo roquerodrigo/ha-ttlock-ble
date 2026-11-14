@@ -276,6 +276,12 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         only orders the round trips. Without it the first command to
         finish would clear the flags and publish a settled state while
         the second was still turning the bolt.
+
+        The refresh that follows is not awaited. It reads the state, the
+        operation log and, when due, the clock, the sound setting and the
+        credential lists - seconds of BLE round trips after the lock has
+        already confirmed the command, which the caller of the service
+        has no reason to sit through.
         """
         async with self._command_lock:
             self._async_cancel_settle_timer()
@@ -315,7 +321,10 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
             self._async_fetch_log_after_command(),
             "fetch_log_after_command",
         )
-        await self.coordinator.async_request_refresh()
+        self._async_create_tracked_task(
+            self.coordinator.async_request_refresh(),
+            "refresh_after_command",
+        )
 
     def _async_create_tracked_task(
         self,
