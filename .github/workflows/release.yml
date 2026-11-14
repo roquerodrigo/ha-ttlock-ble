@@ -3,12 +3,16 @@ name: Release
 # Gated on a successful CI run rather than on the push itself. The
 # `workflow_run.event == 'push'` half of the condition is what stops a pull
 # request with green CI from cutting a release.
+#
+# A manual run skips that gate: it publishes a merged release whose CI run
+# never went green and brings the release pull request up to date with main.
 
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: release
@@ -20,8 +24,10 @@ jobs:
   release:
     name: Release
     if: >-
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
