@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 
 def _battery_state(hass):
     """The battery sensor, picked by device class so last-seen cannot shadow it."""
@@ -21,13 +23,21 @@ def _last_seen_state(hass):
     )
 
 
-def _clock_drift_state(hass):
-    """The clock-drift sensor."""
+def _state_by_unique_id(hass, suffix):
+    """The sensor whose unique id ends with `suffix`."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
     return next(
         state
         for state in hass.states.async_all("sensor")
-        if state.attributes.get("device_class") == "duration"
+        if registry.async_get(state.entity_id).unique_id.endswith(f"_{suffix}")
     )
+
+
+def _clock_drift_state(hass):
+    """The clock-drift sensor."""
+    return _state_by_unique_id(hass, "clock_drift")
 
 
 async def test_clock_drift_is_unknown_until_a_session_carried_a_comparison(
@@ -59,7 +69,7 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 6
+    assert len(hass.states.async_all("sensor")) == 9
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -818,3 +828,180 @@ async def test_last_unlocked_by_restores_an_unknown_unlock(
     assert state.state == "unknown"
     assert state.attributes["credential_type"] == "passcode"
     assert "unlocked_at" not in state.attributes
+
+
+def _added_entity(hass, entity_id):
+    """The live entity behind `entity_id`, as the platform added it."""
+    component = hass.data["entity_components"]["sensor"]
+    return next(e for e in component.entities if e.entity_id == entity_id)
+
+
+def _service_info(*, rssi: int, source: str):
+    from unittest.mock import MagicMock
+
+    info = MagicMock()
+    info.rssi = rssi
+    info.source = source
+    return info
+
+
+async def test_signal_strength_is_unknown_while_nothing_was_ever_received(
+    hass,
+    setup_integration,
+) -> None:
+    state = _state_by_unique_id(hass, "signal_strength")
+    assert state.state in ("unknown", "unavailable")
+    assert "source" not in state.attributes
+
+
+async def test_signal_strength_reports_the_rssi_and_the_scanner_that_heard_it(
+    hass,
+    setup_integration,
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from homeassistant.util import dt as dt_util
+
+    state = _state_by_unique_id(hass, "signal_strength")
+    scanner = MagicMock()
+    scanner.name = "Living room proxy (11:22:33:44:55:66)"
+    with (
+        patch(
+            "custom_components.ttlock_ble.sensor.async_last_service_info",
+            return_value=_service_info(rssi=-72, source="11:22:33:44:55:66"),
+        ),
+        patch(
+            "custom_components.ttlock_ble.sensor.async_scanner_by_source",
+            return_value=scanner,
+        ),
+    ):
+        _added_entity(hass, state.entity_id)._async_reread_history(dt_util.utcnow())
+        await hass.async_block_till_done()
+
+    written = hass.states.get(state.entity_id)
+    assert written.state == "-72"
+    assert written.attributes["unit_of_measurement"] == "dBm"
+    assert written.attributes["device_class"] == "signal_strength"
+    assert written.attributes["source"] == "Living room proxy (11:22:33:44:55:66)"
+
+
+async def test_signal_strength_names_an_unknown_scanner_by_its_source(
+    hass,
+    setup_integration,
+) -> None:
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+
+    state = _state_by_unique_id(hass, "signal_strength")
+    with (
+        patch(
+            "custom_components.ttlock_ble.sensor.async_last_service_info",
+            return_value=_service_info(rssi=-80, source="11:22:33:44:55:66"),
+        ),
+        patch(
+            "custom_components.ttlock_ble.sensor.async_scanner_by_source",
+            return_value=None,
+        ),
+    ):
+        _added_entity(hass, state.entity_id)._async_reread_history(dt_util.utcnow())
+        await hass.async_block_till_done()
+
+    assert hass.states.get(state.entity_id).attributes["source"] == "11:22:33:44:55:66"
+
+
+async def test_signal_strength_keeps_its_value_when_history_is_dropped(
+    hass,
+    setup_integration,
+) -> None:
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+
+    state = _state_by_unique_id(hass, "signal_strength")
+    entity = _added_entity(hass, state.entity_id)
+    with (
+        patch(
+            "custom_components.ttlock_ble.sensor.async_last_service_info",
+            return_value=_service_info(rssi=-65, source="hci0"),
+        ),
+        patch(
+            "custom_components.ttlock_ble.sensor.async_scanner_by_source",
+            return_value=None,
+        ),
+    ):
+        entity._async_reread_history(dt_util.utcnow())
+    with patch(
+        "custom_components.ttlock_ble.sensor.async_last_service_info",
+        return_value=None,
+    ):
+        entity._async_reread_history(dt_util.utcnow())
+        await hass.async_block_till_done()
+
+    written = hass.states.get(state.entity_id)
+    assert written.state == "-65"
+    assert written.attributes["source"] == "hci0"
+
+
+async def test_signal_strength_never_polls_the_lock(
+    hass,
+    setup_integration,
+) -> None:
+    state = _state_by_unique_id(hass, "signal_strength")
+    assert _added_entity(hass, state.entity_id).should_poll is False
+
+
+async def test_connection_quality_is_unknown_before_any_attempt(
+    hass,
+    setup_integration,
+) -> None:
+    assert _state_by_unique_id(hass, "connect_time").state == "unknown"
+    rate = _state_by_unique_id(hass, "connection_success_rate")
+    assert rate.state == "unknown"
+    assert rate.attributes["attempts"] == 0
+    assert rate.attributes["failures"] == 0
+
+
+async def test_connection_quality_follows_every_session_attempt(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.ttlock_ble.connection import quality_signal
+
+    quality = setup_integration.runtime_data.connections[
+        sample_virtual_key.lockMac
+    ].quality
+    quality.record_success(1.5)
+    quality.record_failure()
+    quality.record_success(0.8)
+    quality.record_failure()
+    async_dispatcher_send(hass, quality_signal(sample_virtual_key.lockMac))
+    await hass.async_block_till_done()
+
+    connect_time = _state_by_unique_id(hass, "connect_time")
+    assert float(connect_time.state) == 0.8
+    assert connect_time.attributes["unit_of_measurement"] == "s"
+    rate = _state_by_unique_id(hass, "connection_success_rate")
+    assert float(rate.state) == 50
+    assert rate.attributes["unit_of_measurement"] == "%"
+    assert rate.attributes["attempts"] == 4
+    assert rate.attributes["failures"] == 2
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    ["signal_strength", "connect_time", "connection_success_rate"],
+)
+async def test_connection_quality_sensors_are_diagnostic(
+    hass,
+    setup_integration,
+    suffix,
+) -> None:
+    from homeassistant.helpers import entity_registry as er
+
+    state = _state_by_unique_id(hass, suffix)
+    entry = er.async_get(hass).async_get(state.entity_id)
+    assert entry.entity_category == "diagnostic"

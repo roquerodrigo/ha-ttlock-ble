@@ -24,6 +24,7 @@ from custom_components.ttlock_ble.connection import (
     connection_signal,
     event_signal,
     log_signal,
+    quality_signal,
     state_signal,
 )
 from custom_components.ttlock_ble.data import TtlockBleLogCursor
@@ -1216,3 +1217,78 @@ async def test_a_half_open_session_is_closed_when_connect_fails(
     assert await conn.async_query_state() is None
 
     mock_ttlock_client.disconnect.assert_awaited()
+
+
+async def test_a_session_that_came_up_is_recorded_with_its_duration(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    received: list[None] = []
+    async_dispatcher_connect(
+        hass,
+        quality_signal(sample_virtual_key.lockMac),
+        lambda: received.append(None),
+    )
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with patch(
+        "custom_components.ttlock_ble.connection.time.monotonic",
+        side_effect=[100.0, 101.25],
+    ):
+        await conn.async_query_state()
+    await hass.async_block_till_done()
+    assert conn.quality.success_rate == 100
+    assert conn.quality.last_connect_seconds == 1.25
+    assert len(received) == 1
+
+
+async def test_a_session_that_failed_is_recorded(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    received: list[None] = []
+    async_dispatcher_connect(
+        hass,
+        quality_signal(sample_virtual_key.lockMac),
+        lambda: received.append(None),
+    )
+    mock_ttlock_client.connect = AsyncMock(side_effect=BleakError("dropped"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    await hass.async_block_till_done()
+    assert conn.quality.attempts == 1
+    assert conn.quality.failures == 1
+    assert conn.quality.last_connect_seconds is None
+    assert len(received) == 1
+
+
+async def test_a_lock_nobody_heard_is_not_counted_as_an_attempt(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    """Absence is the last-seen sensor's business; the rate measures the link."""
+    mock_ble_resolver.return_value = None
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    assert conn.quality.attempts == 0
+
+
+async def test_a_reused_session_is_not_counted_again(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    await conn.async_query_state()
+    await conn.async_query_state()
+    assert conn.quality.attempts == 1
+
+
+def test_quality_signal_lowercases_mac() -> None:
+    assert quality_signal("AA:BB:CC:DD:EE:FF") == "ttlock_ble_quality_aa:bb:cc:dd:ee:ff"

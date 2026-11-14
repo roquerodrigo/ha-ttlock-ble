@@ -166,6 +166,12 @@
       "clock_drift": {
         "name": "Desvio do relógio"
       },
+      "connect_time": {
+        "name": "Tempo de conexão"
+      },
+      "connection_success_rate": {
+        "name": "Taxa de sucesso da conexão"
+      },
       "fingerprint_count": {
         "name": "Digitais cadastradas"
       },
@@ -174,6 +180,9 @@
       },
       "last_unlocked_by": {
         "name": "Último desbloqueio por"
+      },
+      "signal_strength": {
+        "name": "Intensidade do sinal"
       }
     },
     "switch": {

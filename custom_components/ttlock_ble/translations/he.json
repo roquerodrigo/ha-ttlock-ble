@@ -166,6 +166,12 @@
       "clock_drift": {
         "name": "סטיית שעון"
       },
+      "connect_time": {
+        "name": "זמן התחברות"
+      },
+      "connection_success_rate": {
+        "name": "שיעור הצלחת התחברות"
+      },
       "fingerprint_count": {
         "name": "טביעות אצבע רשומות"
       },
@@ -174,6 +180,9 @@
       },
       "last_unlocked_by": {
         "name": "נפתח לאחרונה על ידי"
+      },
+      "signal_strength": {
+        "name": "עוצמת אות"
       }
     },
     "switch": {

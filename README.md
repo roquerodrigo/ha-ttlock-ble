@@ -26,6 +26,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
 - **Connects only on demand** — nothing is held open. A session is opened when a command needs the lock, when the lock advertises that it has records worth reading, or when the permanent connection option asks for one.
 - **Reauth + reconfigure** — re-prompt for credentials in place when the cloud rejects the cached login, or edit them via the integration's three-dot menu.
+- **Connection quality** — diagnostic sensors for the signal strength of the lock's advertisements (and the adapter or proxy that heard them), how long the last BLE session took to come up, and how many recent session attempts succeeded.
 - **Diagnostics** — downloadable dump with credentials/keys redacted.
 - **Translations** — English, Brazilian Portuguese and Hebrew (parity enforced by tests).
 
@@ -41,6 +42,9 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `binary_sensor.<alias>_door` | `binary_sensor` | Whether the door is open, from the door-sensor records in the operation log. Created the first time the lock reports its door, so a lock without a paired sensor never gets one; it follows the door a few seconds behind, once the lock's new records have been read. |
 | `event.<alias>_log` | `event` | Fires for every new operation-log record read from the lock. |
 | `sensor.<alias>_last_seen` | `sensor` | When the lock was last heard from, read from HA's own advertisement history (diagnostic). |
+| `sensor.<alias>_signal_strength` | `sensor` | RSSI of the lock's last advertisement, in dBm, read from HA's own advertisement history (diagnostic). The `source` attribute names the adapter or proxy that heard it. While a session is held the lock does not advertise, so the reading is the one from before it opened. |
+| `sensor.<alias>_connection_time` | `sensor` | How long the last BLE session took to come up, in seconds (diagnostic). `unknown` until a session has been opened. |
+| `sensor.<alias>_connection_success_rate` | `sensor` | Share of the last 20 BLE session attempts that came up, in percent, with `attempts` and `failures` as attributes (diagnostic). Only attempts actually made count: a lock no scanner has heard is not dialled. Starts over on every restart. |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
 | `sensor.<alias>_last_unlocked_by` | `sensor` | Who last unlocked the lock, from its operation log (see [Who unlocked](#who-unlocked)). |
 | `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep, read back from the lock on sessions opened for something else and re-read at most hourly. `unknown` until a session has carried a read. Only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
@@ -157,6 +161,7 @@ custom_components/ttlock_ble/
 ├── button.py          # TtlockBleRefreshFingerprintsButton: force a fingerprint read (admin keys only)
 ├── config_flow.py     # menu / bluetooth / cloud / manual / verify_code / reauth / reconfigure
 ├── connection.py      # TtlockBleConnection: persistent BLE session per lock
+├── connection_quality.py # recent BLE session attempts: success rate, connect time
 ├── credential_resolver.py  # TtlockBleCredentialResolver: type, identifier and name behind a log record
 ├── credential_type.py      # TtlockBleCredentialType: the credential each record type names
 ├── const.py           # DOMAIN, LOGGER, defaults
@@ -176,7 +181,7 @@ custom_components/ttlock_ble/
 ├── passcode_ledger.py # TtlockBlePasscodeLedger: passcodes learned and forgotten from the log
 ├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
-├── sensor.py          # battery, last-seen, clock-drift, fingerprint/card counts, last-unlocked-by sensors
+├── sensor.py          # battery, last-seen, connection quality, clock-drift, credential counts, last-unlocked-by
 ├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
 ├── text.py            # name entities: whose each fingerprint, card and passcode is
 └── translations/

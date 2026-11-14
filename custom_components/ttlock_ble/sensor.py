@@ -1,4 +1,4 @@
-"""Sensor platform for ttlock_ble — lock health, credentials and the last unlock."""
+"""Sensor platform for ttlock_ble — lock and link health, credentials, last unlock."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from homeassistant.components.bluetooth import (
     MONOTONIC_TIME,
     async_last_service_info,
+    async_scanner_by_source,
 )
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -15,7 +16,12 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTime,
+)
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
@@ -23,7 +29,7 @@ from homeassistant.util import dt as dt_util
 
 from ttlock_ble import LockFeature, LogOperate
 
-from .connection import event_signal, log_signal
+from .connection import event_signal, log_signal, quality_signal
 from .credential_resolver import TtlockBleCredentialResolver
 from .credential_store import async_get_credential_store
 from .credential_type import TtlockBleCredentialType
@@ -39,12 +45,13 @@ if TYPE_CHECKING:
 
     from ttlock_ble import LockEvent, LogEntry, VirtualKey
 
+    from .connection_quality import TtlockBleConnectionQuality
     from .coordinator import TtlockBleDataUpdateCoordinator
     from .data import TtlockBleConfigEntry, TtlockBleLastUnlockAttributes
 
-# How often the recorded advertisement time is re-read. Costs nothing on
-# the wire: it only looks at what the bluetooth manager already holds.
-LAST_SEEN_REFRESH_INTERVAL = timedelta(seconds=30)
+# How often the recorded advertisement is re-read. Costs nothing on the
+# wire: it only looks at what the bluetooth manager already holds.
+ADVERTISEMENT_HISTORY_REFRESH_INTERVAL = timedelta(seconds=30)
 
 # Unlock records that name who unlocked. A door sensor reporting the door
 # open is filed as an unlock too, but it follows the unlock that opened
@@ -68,6 +75,9 @@ async def async_setup_entry(
         for sensor in (
             TtlockBleBatterySensor(data.coordinator, key),
             TtlockBleLastSeenSensor(data.coordinator, key),
+            TtlockBleSignalStrengthSensor(data.coordinator, key),
+            TtlockBleConnectTimeSensor(data.coordinator, key),
+            TtlockBleConnectionSuccessRateSensor(data.coordinator, key),
             TtlockBleClockDriftSensor(data.coordinator, key),
             TtlockBleLastUnlockedBySensor(data.coordinator, key, resolver),
             *(
@@ -247,7 +257,7 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
             async_track_time_interval(
                 self.hass,
                 self._async_reread_history,
-                LAST_SEEN_REFRESH_INTERVAL,
+                ADVERTISEMENT_HISTORY_REFRESH_INTERVAL,
             ),
         )
 
@@ -283,6 +293,175 @@ class TtlockBleLastSeenSensor(TtlockBleEntity, SensorEntity):
             age = MONOTONIC_TIME() - service_info.time
             self._attr_native_value = dt_util.utcnow() - timedelta(seconds=age)
         return self._attr_native_value
+
+
+class TtlockBleSignalStrengthSensor(TtlockBleEntity, SensorEntity):
+    """
+    How strongly the lock's last advertisement was received, and by whom.
+
+    Read from the bluetooth manager's history on a timer, for the same
+    reasons as the last-seen sensor: the advertisement callback skips
+    repeated payloads, and polling would open a BLE session. While a
+    session is held the lock stops advertising, so the reading is the
+    one from before the session opened.
+
+    `source` names the adapter or proxy that heard it, which is the
+    first thing to look at when the reading is weak: the lock is linked
+    through whichever scanner hears it best, not the nearest one.
+    """
+
+    _attr_translation_key = "signal_strength"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: TtlockBleDataUpdateCoordinator,
+        key: VirtualKey,
+    ) -> None:
+        """Bind the sensor to its key + coordinator."""
+        super().__init__(coordinator, key)
+        self._attr_native_value: int | None = None
+        self._source: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Re-read the history on a timer of its own."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_reread_history,
+                ADVERTISEMENT_HISTORY_REFRESH_INTERVAL,
+            ),
+        )
+
+    @callback
+    def _async_reread_history(self, _now: datetime) -> None:
+        """Publish whatever the bluetooth manager has recorded since."""
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_signal_strength"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the RSSI of the last advertisement, keeping it if history is gone."""
+        service_info = async_last_service_info(
+            self.hass,
+            self._key.lockMac,
+            connectable=False,
+        )
+        if service_info is not None:
+            self._attr_native_value = service_info.rssi
+            scanner = async_scanner_by_source(self.hass, service_info.source)
+            self._source = service_info.source if scanner is None else scanner.name
+        return self._attr_native_value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Carry the scanner that heard the advertisement."""
+        return None if self._source is None else {"source": self._source}
+
+
+class TtlockBleConnectTimeSensor(TtlockBleEntity, SensorEntity):
+    """
+    How long the last BLE session with the lock took to come up.
+
+    Covers the GATT connection and the notification subscription, which
+    is the wait in front of every command sent to a lock with no session
+    held. It grows with a weak or busy link long before attempts start
+    failing outright, so it is the earlier of the two warnings.
+    """
+
+    _attr_translation_key = "connect_time"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 2
+    _attr_icon = "mdi:timer-outline"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_connect_time"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the duration of the last successful connect, if any."""
+        return self._quality.last_connect_seconds
+
+    async def async_added_to_hass(self) -> None:
+        """Follow every session attempt with the lock."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                quality_signal(self._key.lockMac),
+                self.async_write_ha_state,
+            ),
+        )
+
+    @property
+    def _quality(self) -> TtlockBleConnectionQuality:
+        """Return the session attempt history of this lock."""
+        return self.coordinator.connections[self._key.lockMac].quality
+
+
+class TtlockBleConnectionSuccessRateSensor(TtlockBleEntity, SensorEntity):
+    """
+    Share of the recent BLE session attempts with the lock that came up.
+
+    Counts only attempts that were actually made: a lock no scanner has
+    heard is not dialled, and is reported by the last-seen sensor
+    instead. `attempts` and `failures` carry the window the rate was
+    computed over, so a rate of 50% from two attempts reads as such.
+    """
+
+    _attr_translation_key = "connection_success_rate"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:bluetooth-settings"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_connection_success_rate"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the success rate over the window, or `None` before any attempt."""
+        return self._quality.success_rate
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int]:
+        """Carry the attempts and failures the rate was computed over."""
+        return {
+            "attempts": self._quality.attempts,
+            "failures": self._quality.failures,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Follow every session attempt with the lock."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                quality_signal(self._key.lockMac),
+                self.async_write_ha_state,
+            ),
+        )
+
+    @property
+    def _quality(self) -> TtlockBleConnectionQuality:
+        """Return the session attempt history of this lock."""
+        return self.coordinator.connections[self._key.lockMac].quality
 
 
 class TtlockBleFingerprintCountSensor(TtlockBleEntity, SensorEntity):
