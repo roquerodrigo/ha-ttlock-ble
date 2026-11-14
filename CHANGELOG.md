@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.13.0](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.12.2...v3.13.0) (2026-11-14)
+
+Home Assistant users are now named on lock and unlock records, new connection quality sensors were added, and commands complete faster.
+
+### New features
+
+- Locks and unlocks sent from Home Assistant are now named after the user who asked, as in "Alice (via Home Assistant)", or plain "Home Assistant" for automations, instead of leaving the last-unlocked-by sensor on unknown. ([#167](https://github.com/roquerodrigo/ha-ttlock-ble/pull/167))
+- Each lock gets diagnostic sensors for signal strength in dBm and as a percentage, connection time, and connection success rate. ([#163](https://github.com/roquerodrigo/ha-ttlock-ble/pull/163))
+
+### Improvements
+
+- The lock and unlock actions now finish as soon as the lock confirms the command, instead of waiting for the follow-up refresh, which now runs in the background. ([#165](https://github.com/roquerodrigo/ha-ttlock-ble/pull/165))
+- Updated ttlock-ble to 0.3.5, making every Bluetooth session ready about 0.7 seconds sooner, so lock, unlock and reads finish earlier. ([#166](https://github.com/roquerodrigo/ha-ttlock-ble/pull/166))
+- Added documentation on fixing slow or failing commands through an ESPHome Bluetooth proxy. ([#165](https://github.com/roquerodrigo/ha-ttlock-ble/pull/165))
+
 ## [3.12.2](https://github.com/roquerodrigo/ha-ttlock-ble/compare/v3.12.1...v3.12.2) (2026-11-07)
 
 The battery sensor now stays accurate after Bluetooth sessions, and the permanent connection option keeps lock state and history more reliably up to date.
