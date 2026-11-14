@@ -60,7 +60,7 @@ Three event attributes describe the credential behind a record:
 |---|---|
 | `credential_type` | What was used: `fingerprint`, `card`, `passcode`, `app`, `gateway`, `key_fob`, `wireless_keypad`, `mechanical_key`, `face`, `palm_vein` or `qr_code`. |
 | `credential` | Its identifier: the fingerprint number, the card number or the accessory MAC. For a passcode, the label of a known passcode — its first digit and last two, as in `1•••56` — and never the code itself; a code the lock refused shows nothing. |
-| `credential_name` | Whose it is, when that is known: the name given to a fingerprint, card or passcode (see [Credentials](#credentials)), or `Home Assistant` for a lock or unlock sent over BLE by this integration. |
+| `credential_name` | Whose it is, when that is known: the name given to a fingerprint, card or passcode (see [Credentials](#credentials)), or `Home Assistant` for a lock or unlock sent over BLE by this integration — `Alice (via Home Assistant)` when a user asked for it, plain `Home Assistant` when an automation did. |
 
 `sensor.<alias>_last_unlocked_by` keeps the last unlock the log reported. Its state is the `credential_name` when there is one, otherwise the `credential` — the number of a fingerprint nobody named yet, or the label of a passcode — and `unknown` when the record carries neither. It carries `credential_type`, `credential` and `unlocked_at` as attributes and survives a restart. A door sensor reporting the door open does not replace it, and a record older than the unlock already shown is ignored.
 

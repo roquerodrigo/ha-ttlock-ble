@@ -19,6 +19,7 @@ from ttlock_ble import VirtualKey
 
 from .advertisement import TtlockBleAdvertisementTracker
 from .clock_sync_store import async_get_clock_sync_store
+from .command_journal import TtlockBleCommandJournal
 from .connection import TtlockBleConnection
 from .const import CONF_PERMANENT_CONNECTION, DOMAIN, LOGGER
 from .coordinator import TtlockBleDataUpdateCoordinator
@@ -168,6 +169,7 @@ async def async_setup_entry(
         connections=connections,
         coordinator=coordinator,
         bluetooth_unsubs=bluetooth_unsubs,
+        command_journal=TtlockBleCommandJournal(),
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
