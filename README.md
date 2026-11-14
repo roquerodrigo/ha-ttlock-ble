@@ -111,6 +111,25 @@ If the lock is in range when the form is submitted, the protocol type, version a
 
 Reaching the lock takes no extra configuration: whatever Bluetooth radio Home Assistant already manages — USB dongle, built-in adapter, or an ESPHome proxy — is the one used.
 
+### Slow or failing commands through an ESPHome proxy
+
+If commands sent through an ESP32 proxy take 20 seconds or more, or fail every so often with the lock "not reachable", look at the *Connection time* and *Connection success rate* sensors. Sessions that either come up within a couple of seconds or not at all point at how the proxy listens for the lock, not at the signal.
+
+An idle lock advertises about every 0.9 s. While opening a connection, the ESP32's Bluetooth stack listens 30 ms out of every 60 ms, a cycle the lock's interval is a multiple of. An advertisement that falls in the half the proxy is not listening to therefore keeps falling there, and the attempt runs out its 20 seconds.
+
+Making the proxy listen for the whole interval removes the blind half. In the proxy's ESPHome configuration, on the ESP-IDF framework:
+
+```yaml
+esphome:
+  build_flags:
+    - -DBTM_BLE_SCAN_FAST_INT=56
+    - -DBTM_BLE_SCAN_FAST_WIN=56
+```
+
+Both values are in units of 0.625 ms, so 56 is 35 ms. They replace defaults of the ESP-IDF Bluetooth stack that ESPHome has no option for, and apply to every connection the proxy opens. Measured on an ESP32-C6 running ESPHome 2026.10 with one lock: before, roughly two connection attempts in three timed out; after, 45 of 45 connected on the first attempt, typically in about 2 seconds.
+
+Keep the proxy's `logger` at `WARN` as well. On a Wi-Fi proxy the log stream shares the radio with Bluetooth, and more verbose levels can slow connections down.
+
 ## Options
 
 Settings → Devices & Services → TTLock BLE → **Configure** exposes one setting:
