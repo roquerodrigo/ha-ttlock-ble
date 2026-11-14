@@ -175,6 +175,38 @@ async def test_async_unlock_calls_connection(
     mock_ttlock_connection.async_unlock.assert_awaited_once()
 
 
+async def test_command_returns_before_the_refresh_that_follows_it(
+    hass,
+    setup_integration,
+    mock_ttlock_connection,
+) -> None:
+    """The service call ends once the lock confirms, not once it was re-read."""
+    from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
+    from homeassistant.components.lock import SERVICE_UNLOCK
+
+    refresh_started = asyncio.Event()
+    refresh_released = asyncio.Event()
+
+    async def blocking_query() -> None:
+        refresh_started.set()
+        await refresh_released.wait()
+
+    mock_ttlock_connection.async_query_state = AsyncMock(side_effect=blocking_query)
+    state = hass.states.async_all("lock")[0]
+    async with asyncio.timeout(5):
+        await hass.services.async_call(
+            LOCK_DOMAIN,
+            SERVICE_UNLOCK,
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+        await refresh_started.wait()
+    assert not refresh_released.is_set()
+    assert hass.states.get(state.entity_id).state == "unlocked"
+    refresh_released.set()
+    await hass.async_block_till_done()
+
+
 async def test_async_lock_wraps_ttlock_error(
     hass,
     setup_integration,
@@ -446,6 +478,8 @@ async def test_settle_timeout_resyncs_when_no_completion_push_arrives(
         {"entity_id": state.entity_id},
         blocking=True,
     )
+    # Let the post-command refresh finish before the resync is counted.
+    await hass.async_block_till_done()
     assert hass.states.get(state.entity_id).state == "unlocking"
     # The bolt did not move: the resync reads the real position.
     mock_ttlock_connection.async_query_state = AsyncMock(return_value=(0, 80))
