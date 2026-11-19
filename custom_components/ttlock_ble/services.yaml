@@ -1,0 +1,36 @@
+get_passage_mode:
+  target:
+    entity:
+      integration: ttlock_ble
+      domain: lock
+set_passage_mode:
+  target:
+    entity:
+      integration: ttlock_ble
+      domain: lock
+  fields:
+    start_time:
+      required: true
+      selector:
+        time:
+    end_time:
+      required: true
+      selector:
+        time:
+    days:
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          mode: list
+          translation_key: weekdays
+          options: [mon, tue, wed, thu, fri, sat, sun]
+    clear_existing:
+      default: false
+      selector:
+        boolean:
+clear_passage_mode:
+  target:
+    entity:
+      integration: ttlock_ble
+      domain: lock

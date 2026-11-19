@@ -29,19 +29,19 @@ from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from ttlock_ble import LockFeature, LockState
+from ttlock_ble import LockFeature, LockState, TTLockError
 
 from .const import DOMAIN, LOGGER
 from .credential_type import TtlockBleCredentialType
 from .data import TtlockBleKnownCredential
-from .key_privileges import can_administer, may_hold
+from .key_privileges import can_administer, can_manage_passage_mode, may_hold
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
-    from ttlock_ble import LockAdvertisement
+    from ttlock_ble import LockAdvertisement, PassageModeSlot
 
     from .clock_sync_store import TtlockBleClockSyncStore
     from .connection import TtlockBleConnection
@@ -88,6 +88,11 @@ CLOCK_DRIFT_THRESHOLD_SECONDS = 30.0
 # admin handshake plus its own round trip, and the setting rarely moves.
 SOUND_CHECK_INTERVAL_SECONDS = 60 * 60
 
+# How long to wait between reads of the passage mode slots. Like the beep,
+# only the official app changes them behind our back, and what this
+# integration writes is read back at once.
+PASSAGE_CHECK_INTERVAL_SECONDS = 60 * 60
+
 # How long between reads of the credential lists. Each read walks a whole
 # list, one round trip per credential, behind the admin handshake.
 CREDENTIAL_CHECK_INTERVAL_SECONDS = 30 * 60
@@ -129,6 +134,8 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         self._described: set[str] = set()
         self._sound_enabled: dict[str, bool] = {}
         self._sound_checked_at: dict[str, float] = {}
+        self._passage_slots: dict[str, list[PassageModeSlot]] = {}
+        self._passage_checked_at: dict[str, float] = {}
         self._credentials_checked_at: dict[str, float] = {}
         self._log_fetches: set[str] = set()
         self._records_pending: dict[str, bool] = {}
@@ -194,6 +201,56 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         """
         self._sound_enabled[mac] = enabled
         self.async_update_listeners()
+
+    @callback
+    def async_passage_slots(self, mac: str) -> list[PassageModeSlot] | None:
+        """Return the passage mode slots `mac` last listed, `None` if it never did."""
+        return self._passage_slots.get(mac)
+
+    @callback
+    def async_restore_passage_slots(
+        self,
+        mac: str,
+        slots: list[PassageModeSlot],
+    ) -> None:
+        """
+        Take the slots known before a restart, until the lock lists them again.
+
+        The pacing is left alone, so the first session of the run still
+        reads them, and a list already read this run is not replaced.
+        """
+        if mac in self._passage_slots:
+            return
+        self._passage_slots[mac] = slots
+        self.async_update_listeners()
+
+    @callback
+    def async_note_passage_slots(
+        self,
+        mac: str,
+        slots: list[PassageModeSlot],
+    ) -> None:
+        """Adopt the passage mode slots the lock just listed, or was just left with."""
+        self._passage_checked_at[mac] = self.hass.loop.time()
+        self._passage_slots[mac] = slots
+        self.async_update_listeners()
+
+    async def async_refresh_passage_slots(self, mac: str) -> bool:
+        """
+        Read the passage mode slots of `mac` now. Reports whether the read landed.
+
+        A read that did not land still moves the pacing: the connection
+        drops the session on a refused round trip, and a lock that
+        refuses this one would otherwise lose every session to it.
+        """
+        try:
+            slots = await self._connections[mac].async_get_passage_slots()
+        except TTLockError as exc:
+            LOGGER.debug("Passage mode read failed for %s: %s", mac, exc)
+            self._passage_checked_at[mac] = self.hass.loop.time()
+            return False
+        self.async_note_passage_slots(mac, slots)
+        return True
 
     @callback
     def async_has_state(self, mac: str) -> bool:
@@ -417,6 +474,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
             await self._async_align_clock(connection)
             await self._async_read_sound(connection)
             await self._async_read_credentials(connection)
+            await self._async_read_passage_slots(connection)
         finally:
             self._log_fetches.discard(mac)
             if self._records_pending.get(mac, False):
@@ -465,6 +523,7 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         await self._async_align_clock(connection)
         await self._async_read_sound(connection)
         await self._async_read_credentials(connection)
+        await self._async_read_passage_slots(connection)
         return {
             "locked": _parse_lock_state(raw_state),
             "battery_level": battery,
@@ -591,6 +650,25 @@ class TtlockBleDataUpdateCoordinator(DataUpdateCoordinator["TtlockBleCoordinator
         LOGGER.debug("Sound of %s is %s", mac, "on" if sound.enabled else "off")
         self._sound_enabled[mac] = sound.enabled
         self.async_update_listeners()
+
+    async def _async_read_passage_slots(self, connection: TtlockBleConnection) -> None:
+        """
+        Read the passage mode slots on a session another read just opened.
+
+        Admin-gated like the beep, and only asked of a lock whose feature
+        bits do not rule passage mode out. It runs last, because a refusal
+        costs the session.
+        """
+        mac = connection.key.lockMac
+        if not can_manage_passage_mode(connection.key):
+            return
+        checked_at = self._passage_checked_at.get(mac)
+        if (
+            checked_at is not None
+            and self.hass.loop.time() - checked_at < PASSAGE_CHECK_INTERVAL_SECONDS
+        ):
+            return
+        await self.async_refresh_passage_slots(mac)
 
     def _async_sound_check_due(self, mac: str) -> bool:
         """Report whether `mac` is due for a beep-setting read."""

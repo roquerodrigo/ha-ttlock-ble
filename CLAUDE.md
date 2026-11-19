@@ -202,6 +202,17 @@ Every fingerprint, card and passcode a lock is known to hold gets a `text` entit
 - **It is created by the first door record, not at setup.** The key's feature bits only say the lock *supports* a sensor, not that one is paired, and a manual key carries none. Once registered, setup creates it straight away and `RestoreEntity` brings back the last state, because a door record may not come for days.
 - **One listener per lock feeds it, before and after it exists.** Records are dispatched in a synchronous batch; an entity that subscribed itself once added would miss the rest of the batch that created it, and an "opened, closed" pair would leave it reporting open.
 
+### Passage mode
+
+Passage mode is a set of slots the lock stores and applies against its own clock. The SDK owns the protocol (`get_passage_mode`, `add_passage_mode_slot`, `delete_passage_mode_slot`, `clear_passage_mode`, and the `PassageModeSlot` model); `passage_mode.py` here is only schedule maths over those slots: whether one covers a moment, when the next starts or ends, and the schedules the switch and `set_passage_mode` write. Four things are load-bearing:
+
+- **The lock cannot say who wrote a slot.** `switch_slot_store.py` records what the switch wrote, saved at once and before the write, and the switch removes only that, shrinking the record as it goes so a retry never asks for a slot that is already gone. `set_passage_mode` does not clear by default and records nothing, so what it writes is left alone by the switch; `clear_passage_mode` and `clear_existing` wipe everything and forget the switch's record. Two identical slots cannot be told apart.
+- **Entities follow the clock without polling it.** `TtlockBlePassageModeEntity` arms one timer for the next moment any slot starts or ends and re-arms it when the slots change, so the binary sensor and the start and end sensors write state at a transition and not on a fixed beat.
+- **The slots are read like the beep setting.** The coordinator reads them on a session another read opened (admin key on a lock that does not rule the feature out, `can_manage_passage_mode`), at most once per `PASSAGE_CHECK_INTERVAL_SECONDS`, and after anything the integration changes. A refused read still moves the pacing, because the connection drops the session on a refusal and the read would otherwise cost every session. The list survives a restart through the binary sensor's restored `slots` attribute, handed back with `async_restore_passage_slots`, which never replaces a list read this run.
+- **The gate is one function.** Every entity, the coordinator and the actions use `key_privileges.can_manage_passage_mode`.
+
+The actions are registered in `async_setup` (`services.py`) as platform entity services on the lock, so they exist whether or not an entry is loaded.
+
 ### Diagnostics
 
 `diagnostics.py` returns `TtlockBleDiagnosticsPayload`, with the entry's credentials and keys redacted through `TO_REDACT`. `.github/ISSUE_TEMPLATE/bug.yml` asks users to attach the dump.

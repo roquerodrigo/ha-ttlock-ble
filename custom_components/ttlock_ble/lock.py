@@ -7,8 +7,9 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.lock import LockEntity
+from homeassistant.const import WEEKDAYS
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -19,13 +20,17 @@ from .connection import event_signal, state_signal
 from .const import DOMAIN, LOGGER
 from .data import TtlockBleIssuedCommand
 from .entity import TtlockBleEntity
+from .key_privileges import can_manage_passage_mode
 from .lock_command import TtlockBleLockCommand
+from .passage_mode import describe_slot, slots_for_schedule
+from .switch_slot_store import async_get_switch_slot_store
 
 if TYPE_CHECKING:
+    import datetime as dt
     from collections.abc import Coroutine
     from datetime import datetime
 
-    from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+    from homeassistant.core import CALLBACK_TYPE, HomeAssistant, ServiceResponse
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from ttlock_ble import LockEvent, VirtualKey
@@ -346,6 +351,97 @@ class TtlockBleLock(TtlockBleEntity, LockEntity):
         self._async_create_tracked_task(
             self.coordinator.async_request_refresh(),
             "refresh_after_command",
+        )
+
+    async def async_get_passage_mode(self) -> ServiceResponse:
+        """Return the passage mode slots the lock holds."""
+        self._require_passage_mode()
+        try:
+            slots = await self._connection.async_get_passage_slots()
+        except TTLockError as exc:
+            raise self._passage_mode_error(exc) from exc
+        self.coordinator.async_note_passage_slots(self._key.lockMac, slots)
+        return {
+            "slots": [
+                {
+                    "kind": described["kind"],
+                    "day": described["day"],
+                    "month": described["month"],
+                    "start": described["start"],
+                    "end": described["end"],
+                }
+                for described in map(describe_slot, slots)
+            ]
+        }
+
+    async def async_set_passage_mode(
+        self,
+        start_time: dt.time,
+        end_time: dt.time,
+        days: list[str],
+        *,
+        clear_existing: bool,
+    ) -> None:
+        """Write a daily passage mode window on the chosen weekdays."""
+        self._require_passage_mode()
+        try:
+            slots = slots_for_schedule(
+                start_time,
+                end_time,
+                [WEEKDAYS.index(day) + 1 for day in days],
+            )
+        except ValueError as exc:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="passage_schedule_invalid",
+                translation_placeholders={
+                    "start": f"{start_time:%H:%M}",
+                    "end": f"{end_time:%H:%M}",
+                },
+            ) from exc
+        mac = self._key.lockMac
+        try:
+            if clear_existing:
+                await self._connection.async_clear_passage_slots()
+                await (await async_get_switch_slot_store(self.hass)).async_forget(mac)
+            for slot in slots:
+                await self._connection.async_add_passage_slot(slot)
+        except TTLockError as exc:
+            await self.coordinator.async_refresh_passage_slots(mac)
+            raise self._passage_mode_error(exc) from exc
+        await self.coordinator.async_refresh_passage_slots(mac)
+
+    async def async_clear_passage_mode(self) -> None:
+        """Remove every passage mode slot from the lock, whoever wrote it."""
+        self._require_passage_mode()
+        mac = self._key.lockMac
+        try:
+            await self._connection.async_clear_passage_slots()
+        except TTLockError as exc:
+            raise self._passage_mode_error(exc) from exc
+        await (await async_get_switch_slot_store(self.hass)).async_forget(mac)
+        self.coordinator.async_note_passage_slots(mac, [])
+
+    def _require_passage_mode(self) -> None:
+        """Refuse an action the lock cannot take, before anything is sent."""
+        if not can_manage_passage_mode(self._key):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="passage_mode_unavailable",
+                translation_placeholders={"lock": self._lock_name},
+            )
+
+    def _passage_mode_error(self, exc: TTLockError) -> HomeAssistantError:
+        """Log a failed passage mode round trip and build what the user sees."""
+        LOGGER.warning(
+            "Failed to change the passage mode of %s: %s",
+            self._key.lockMac,
+            exc,
+        )
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="passage_mode_failed",
+            translation_placeholders={"lock": self._lock_name},
         )
 
     async def _async_calling_user_name(self) -> str | None:

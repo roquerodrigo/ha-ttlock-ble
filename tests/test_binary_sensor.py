@@ -10,7 +10,7 @@ async def test_connection_binary_sensor_created_for_each_key(
     hass,
     setup_integration,
 ) -> None:
-    assert len(hass.states.async_all("binary_sensor")) == 1
+    assert len(hass.states.async_all("binary_sensor")) == 2
 
 
 async def test_connection_binary_sensor_reflects_initial_state(
@@ -130,7 +130,7 @@ async def test_door_binary_sensor_absent_until_the_lock_reports_a_door(
     )
     await hass.async_block_till_done()
     assert _door_entity_id(hass, sample_virtual_key.lockMac) is None
-    assert len(hass.states.async_all("binary_sensor")) == 1
+    assert len(hass.states.async_all("binary_sensor")) == 2
 
 
 @pytest.mark.parametrize(
@@ -277,3 +277,171 @@ async def test_door_binary_sensor_removed_entity_ignores_later_records(
     )
     await hass.async_block_till_done()
     assert hass.states.get(entity_id) is None
+
+
+def _passage_state(hass):
+    return next(
+        state
+        for state in hass.states.async_all("binary_sensor")
+        if state.entity_id.endswith("passage_mode_active")
+    )
+
+
+def _slot_22_to_23():
+    from ttlock_ble import PassageModeSlot
+
+    return PassageModeSlot(kind=1, day=6, month=0, start_minute=1320, end_minute=1380)
+
+
+async def _note_slots(hass, entry, mac, slots) -> None:
+    entry.runtime_data.coordinator.async_note_passage_slots(mac, slots)
+    await hass.async_block_till_done()
+
+
+async def test_passage_mode_is_unknown_until_the_lock_lists_its_slots(
+    hass,
+    setup_integration,
+) -> None:
+    state = _passage_state(hass)
+    assert state.state == "unknown"
+    assert state.attributes["slots"] == []
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        ("2026-11-14 22:30:00", "on"),
+        ("2026-11-14 23:00:00", "off"),
+        ("2026-11-15 22:30:00", "off"),
+    ],
+)
+async def test_passage_mode_follows_the_slots_and_the_clock(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    freezer,
+    moment,
+    expected,
+) -> None:
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to(f"{moment}+00:00")
+    await _note_slots(
+        hass, setup_integration, sample_virtual_key.lockMac, [_slot_22_to_23()]
+    )
+
+    state = _passage_state(hass)
+    assert state.state == expected
+    assert state.attributes["slots"] == [
+        {"kind": 1, "day": 6, "month": 0, "start": "22:00", "end": "23:00"}
+    ]
+
+
+async def test_passage_mode_changes_at_the_moment_a_slot_starts_and_ends(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    freezer,
+) -> None:
+    """Nothing announces a slot starting or ending, so a timer is armed for it."""
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to("2026-11-14 21:59:30+00:00")
+    await _note_slots(
+        hass, setup_integration, sample_virtual_key.lockMac, [_slot_22_to_23()]
+    )
+    assert _passage_state(hass).state == "off"
+
+    for moment, expected in (
+        ("2026-11-14 22:00:00+00:00", "on"),
+        ("2026-11-14 23:00:00+00:00", "off"),
+    ):
+        freezer.move_to(moment)
+        async_fire_time_changed(hass, dt_util.parse_datetime(moment))
+        await hass.async_block_till_done()
+        assert _passage_state(hass).state == expected
+
+
+async def test_passage_mode_writes_no_state_between_transitions(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    freezer,
+) -> None:
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to("2026-11-14 12:00:00+00:00")
+    await _note_slots(
+        hass, setup_integration, sample_virtual_key.lockMac, [_slot_22_to_23()]
+    )
+    before = _passage_state(hass)
+
+    for _minute in range(30):
+        moment = dt_util.utcnow() + timedelta(minutes=1)
+        freezer.move_to(moment)
+        async_fire_time_changed(hass, moment)
+        await hass.async_block_till_done()
+
+    assert _passage_state(hass).last_reported == before.last_reported
+
+
+async def test_passage_mode_has_no_timer_without_slots(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+) -> None:
+    await _note_slots(hass, setup_integration, sample_virtual_key.lockMac, [])
+    assert _passage_state(hass).state == "off"
+
+
+@pytest.mark.parametrize(
+    ("restored", "expected"),
+    [
+        ([{"kind": 1, "day": 6, "month": 0, "start": "22:00", "end": "23:00"}], 1),
+        ("not a list", 0),
+        ([{"kind": 1}], 0),
+    ],
+)
+async def test_passage_mode_restores_the_slots_it_last_showed(
+    hass,
+    enable_bluetooth,
+    enable_custom_integrations,
+    sample_stored_key,
+    mock_cloud,
+    mock_ttlock_connection,
+    restored,
+    expected,
+) -> None:
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import (
+        MockConfigEntry,
+        mock_restore_cache,
+    )
+
+    from custom_components.ttlock_ble.const import DOMAIN
+
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                "binary_sensor.front_door_passage_mode_active",
+                "off",
+                {"slots": restored},
+            )
+        ],
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "keys": [sample_stored_key]},
+        unique_id="u",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert len(_passage_state(hass).attributes["slots"]) == expected
