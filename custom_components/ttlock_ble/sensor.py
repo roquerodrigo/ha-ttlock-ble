@@ -35,7 +35,9 @@ from .credential_store import async_get_credential_store
 from .credential_type import TtlockBleCredentialType
 from .entity import TtlockBleEntity
 from .event import UNLOCK_RECORD_TYPES
-from .key_privileges import can_administer, may_hold
+from .key_privileges import can_administer, can_manage_passage_mode, may_hold
+from .passage_mode import window_in_effect
+from .passage_mode_entity import TtlockBlePassageModeEntity
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -98,6 +100,14 @@ async def async_setup_entry(
             *(
                 (TtlockBleCardCountSensor(data.coordinator, key),)
                 if can_administer(key) and may_hold(key, LockFeature.IC)
+                else ()
+            ),
+            *(
+                (
+                    TtlockBlePassageModeStartSensor(data.coordinator, key),
+                    TtlockBlePassageModeEndSensor(data.coordinator, key),
+                )
+                if can_manage_passage_mode(key)
                 else ()
             ),
         )
@@ -548,6 +558,59 @@ class TtlockBleCardCountSensor(TtlockBleEntity, SensorEntity):
             self._key.lockMac, TtlockBleCredentialType.CARD
         )
         return None if cards is None else len(cards)
+
+
+class TtlockBlePassageModeStartSensor(TtlockBlePassageModeEntity, SensorEntity):
+    """
+    When passage mode came, or next comes, into effect on the lock.
+
+    Worked out from the slots the lock last listed, like the passage mode
+    binary sensor, and re-evaluated only when a slot starts or ends. It
+    is unknown while the lock holds no slot, or has not listed them yet.
+    """
+
+    _attr_translation_key = "passage_mode_start"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_passage_mode_start"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the start of the stretch of slots in effect, or the next one."""
+        window = self._window
+        return None if window is None else window[0]
+
+    @property
+    def _window(self) -> tuple[datetime, datetime | None] | None:
+        """Return the stretch of slots in effect now, or the next one."""
+        slots = self._slots
+        return None if slots is None else window_in_effect(slots, dt_util.now())
+
+
+class TtlockBlePassageModeEndSensor(TtlockBlePassageModeStartSensor):
+    """
+    When the passage mode in effect, or the next to be, ends.
+
+    Unknown as well for passage mode left on at all times, which has no
+    end to report.
+    """
+
+    _attr_translation_key = "passage_mode_end"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_passage_mode_end"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the end of the stretch of slots in effect, or the next one."""
+        window = self._window
+        return None if window is None else window[1]
 
 
 class TtlockBleLastUnlockedBySensor(TtlockBleEntity, RestoreSensor):

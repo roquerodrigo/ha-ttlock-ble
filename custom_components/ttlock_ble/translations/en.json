@@ -128,6 +128,9 @@
       },
       "door": {
         "name": "Door"
+      },
+      "passage_mode": {
+        "name": "Passage mode active"
       }
     },
     "button": {
@@ -186,11 +189,20 @@
       },
       "signal_strength": {
         "name": "Signal strength"
+      },
+      "passage_mode_start": {
+        "name": "Passage mode start"
+      },
+      "passage_mode_end": {
+        "name": "Passage mode end"
       }
     },
     "switch": {
       "sound": {
         "name": "Sound"
+      },
+      "passage_mode": {
+        "name": "Passage mode"
       }
     },
     "text": {
@@ -208,6 +220,47 @@
   "exceptions": {
     "credentials_not_read": {
       "message": "Could not read the credentials of {lock}. Make sure the lock is in range and try again."
+    },
+    "passage_mode_unavailable": {
+      "message": "{lock} can only do this with an admin key that carries the admin passcode, on a lock that supports passage mode."
+    },
+    "passage_mode_failed": {
+      "message": "Could not change the passage mode of {lock}. Make sure the lock is in range and try again."
+    },
+    "passage_schedule_invalid": {
+      "message": "The window {start} to {end} does not end after it starts. A window past midnight needs two schedules."
+    }
+  },
+  "services": {
+    "get_passage_mode": {
+      "name": "Get passage mode",
+      "description": "Reads the passage mode slots stored on the lock."
+    },
+    "set_passage_mode": {
+      "name": "Set passage mode",
+      "description": "Writes a daily passage mode window on the chosen weekdays: from the start time the lock stays unlocked once opened, until the end time. Needs an admin key.",
+      "fields": {
+        "start_time": {
+          "name": "Start time",
+          "description": "When the lock starts staying unlocked once opened."
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "When it stops. Midnight means the end of the day."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The weekdays the window applies to. Every day when left out."
+        },
+        "clear_existing": {
+          "name": "Replace existing",
+          "description": "Remove every other passage mode slot first, including ones set in the official app. Off by default."
+        }
+      }
+    },
+    "clear_passage_mode": {
+      "name": "Clear passage mode",
+      "description": "Removes every passage mode slot from the lock, including the ones set from the official app."
     }
   },
   "selector": {
@@ -215,6 +268,17 @@
       "options": {
         "dlock_xp": "TTLock / DLock-XP",
         "schlage_breeze": "Schlage Breeze"
+      }
+    },
+    "weekdays": {
+      "options": {
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday",
+        "sun": "Sunday"
       }
     }
   }

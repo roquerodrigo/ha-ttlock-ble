@@ -28,6 +28,8 @@ from .log_credential import TtlockBleLogCredential
 from .log_cursor import TtlockBleLogCursor
 from .manual_key_input import TtlockBleManualKeyInput
 from .options_data import TtlockBleOptionsData
+from .passage_mode_attributes import TtlockBlePassageModeAttributes
+from .passage_slot_description import TtlockBlePassageSlotDescription
 from .runtime import TtlockBleData
 from .stored_credential import TtlockBleStoredCredential
 from .stored_key import TtlockBleStoredKey
@@ -64,6 +66,8 @@ __all__ = [
     "TtlockBleLogEventAttributes",
     "TtlockBleManualKeyInput",
     "TtlockBleOptionsData",
+    "TtlockBlePassageModeAttributes",
+    "TtlockBlePassageSlotDescription",
     "TtlockBleStoredCredential",
     "TtlockBleStoredKey",
     "TtlockBleStoredLockVersion",

@@ -21,6 +21,7 @@ Local control of TTLock smart locks over Bluetooth, for [Home Assistant](https:/
 - **2FA-aware config flow** — handles TTLock's "new device" verification by emailing a one-time code and prompting for it.
 - **Other TTLock-based apps** — accounts created in the Schlage Breeze app sign in the same way, by picking the app at setup.
 - **Door sensor** — a lock with a paired door sensor gets a door entity, created the first time the lock reports the door.
+- **Passage mode** — read the slots the lock holds for staying unlocked once opened, follow whether one is in effect, turn it on or off like the official app does, and write a schedule. See [Passage mode](#passage-mode).
 - **Who unlocked** — every log event says what kind of credential was used, its identifier and, once named, whose it is; a sensor keeps the last unlock. Fingerprints, cards and passcodes can each be given the name of the person they belong to.
 - **Works without a cloud account** — a lock initialised locally can be added by entering its key directly, no TTLock account involved at any point.
 - **Passive state tracking** — the bolt position and battery level are read from the lock's own BLE advertisements, with no connection and no battery cost. This is what catches an auto-lock or an operation done from the official app.
@@ -48,9 +49,28 @@ Each configured lock produces one HA device, named with the model, hardware and 
 | `sensor.<alias>_connection_success_rate` | `sensor` | Share of the last 20 BLE session attempts that came up, in percent, with `attempts` and `failures` as attributes (diagnostic). Only attempts actually made count: a lock no scanner has heard is not dialled. Starts over on every restart. |
 | `sensor.<alias>_clock_drift` | `sensor` | How far the lock's own clock was off local time when last compared, in seconds, positive when it runs ahead (diagnostic). `unknown` until a session opened for something else has carried a comparison. |
 | `sensor.<alias>_last_unlocked_by` | `sensor` | Who last unlocked the lock, from its operation log (see [Who unlocked](#who-unlocked)). |
+| `switch.<alias>_passage_mode` | `switch` | Passage mode left on at all times, as the official app's toggle does. On adds one all-day slot for every weekday next to whatever the lock already holds; off removes those and nothing else. Admin keys only, on a lock that supports passage mode. |
+| `binary_sensor.<alias>_passage_mode_active` | `binary_sensor` | On while a passage mode slot covers the current minute, whoever set it. Its `slots` attribute lists them. Admin keys only. |
+| `sensor.<alias>_passage_mode_start` / `sensor.<alias>_passage_mode_end` | `sensor` | When the stretch of slots in effect started or will end, or the next one to come (diagnostic). The end is `unknown` for passage mode left on. Admin keys only. |
 | `switch.<alias>_sound` | `switch` | The lock's keypad/lock beep, read back from the lock on sessions opened for something else and re-read at most hourly. `unknown` until a session has carried a read. Only created for an admin key that carries an admin passcode, which a manually entered key usually does not. |
 
 The event entity classifies each record as `unlock`, `lock`, `unlock_failed`, `password_change` or `other`, and attaches `record_type` and `battery` always, plus `timestamp`, `uid`, `credential_type`, `credential`, `credential_name`, `key_id` and `accessory_battery` when the record carries them.
+
+### Passage mode
+
+Passage mode is a set of slots stored on the lock: while one is in effect the lock does not relock on its own after an unlock, and it ends the window by itself at the slot's end. It is what the official app's passage mode setting writes, so it works over the same Bluetooth link with no gateway. It needs an admin key that carries an admin passcode, on a lock whose feature bits do not rule passage mode out.
+
+Three actions on the lock entity:
+
+| Action | What it does |
+| --- | --- |
+| `ttlock_ble.get_passage_mode` | Returns the slots stored on the lock. |
+| `ttlock_ble.set_passage_mode` | Writes a daily window (`start_time` to `end_time`) on the chosen `days`, every day when left out. The lock's other slots are kept unless `clear_existing` is on. A window that does not end after it starts is refused. |
+| `ttlock_ble.clear_passage_mode` | Removes every slot, including the ones set from the official app. |
+
+The lock cannot say who wrote a slot, so the switch records what it wrote and turning it off removes only that. A schedule from the app or from `set_passage_mode` survives it. Two identical slots cannot be told apart, so a slot that matches one the switch wrote exactly is treated as the switch's.
+
+The slots are read on sessions opened for something else, at most hourly, and straight after anything this integration changes. The binary sensor and the two timestamps work out where the lock stands from that list, and change only when a slot starts or ends; they are `unknown` until a first read and keep the last list across a restart. On means a slot is in effect, not that the bolt is drawn back: the lock still has to be unlocked once inside the slot to stay so. The lock applies its slots against its own clock, so a lock whose clock has drifted starts and ends a window slightly off what Home Assistant shows.
 
 ### Who unlocked
 
@@ -198,11 +218,16 @@ custom_components/ttlock_ble/
 ├── manifest.json
 ├── manual_key.py      # TtlockBleManualKey: key entry for cloud-less locks
 ├── options_flow.py    # TtlockBleOptionsFlow: permanent_connection
+├── passage_mode.py    # passage mode schedule maths over the SDK's slots
+├── passage_mode_entity.py  # TtlockBlePassageModeEntity: an entity that follows the slots
 ├── passcode_ledger.py # TtlockBlePasscodeLedger: passcodes learned and forgotten from the log
 ├── clock_sync_store.py # persisted clock comparison per lock
 ├── record_store.py    # persisted operation-log cursor per lock
 ├── sensor.py          # battery, last-seen, connection quality, clock-drift, credential counts, last-unlocked-by
-├── switch.py          # TtlockBleSoundSwitch: the lock's beep (admin keys only)
+├── services.py        # the lock entity actions (passage mode)
+├── services.yaml      # action field descriptors
+├── switch.py          # sound and passage mode switches (admin keys only)
+├── switch_slot_store.py    # persisted record of the passage mode slots the switch wrote
 ├── text.py            # name entities: whose each fingerprint, card and passcode is
 └── translations/
     ├── en.json

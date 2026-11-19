@@ -128,6 +128,9 @@
       },
       "door": {
         "name": "Porta"
+      },
+      "passage_mode": {
+        "name": "Modo de passagem ativo"
       }
     },
     "button": {
@@ -186,11 +189,20 @@
       },
       "signal_strength": {
         "name": "Intensidade do sinal"
+      },
+      "passage_mode_start": {
+        "name": "Início do modo de passagem"
+      },
+      "passage_mode_end": {
+        "name": "Fim do modo de passagem"
       }
     },
     "switch": {
       "sound": {
         "name": "Som"
+      },
+      "passage_mode": {
+        "name": "Modo de passagem"
       }
     },
     "text": {
@@ -208,6 +220,47 @@
   "exceptions": {
     "credentials_not_read": {
       "message": "Não foi possível ler as credenciais de {lock}. Verifique se a fechadura está ao alcance e tente novamente."
+    },
+    "passage_mode_unavailable": {
+      "message": "{lock} só pode fazer isso com uma chave de administrador que tenha a senha de administrador, em uma fechadura que suporte o modo de passagem."
+    },
+    "passage_mode_failed": {
+      "message": "Não foi possível alterar o modo de passagem de {lock}. Verifique se a fechadura está ao alcance e tente novamente."
+    },
+    "passage_schedule_invalid": {
+      "message": "O período de {start} a {end} não termina depois de começar. Um período que passa da meia-noite precisa de dois agendamentos."
+    }
+  },
+  "services": {
+    "get_passage_mode": {
+      "name": "Ler modo de passagem",
+      "description": "Lê os períodos de modo de passagem armazenados na fechadura."
+    },
+    "set_passage_mode": {
+      "name": "Definir modo de passagem",
+      "description": "Grava um período diário de modo de passagem nos dias escolhidos: a partir do horário de início a fechadura permanece destrancada depois de aberta, até o horário de término. Exige uma chave de administrador.",
+      "fields": {
+        "start_time": {
+          "name": "Horário de início",
+          "description": "Quando a fechadura passa a ficar destrancada depois de aberta."
+        },
+        "end_time": {
+          "name": "Horário de término",
+          "description": "Quando deixa de ficar. Meia-noite significa o fim do dia."
+        },
+        "days": {
+          "name": "Dias",
+          "description": "Os dias da semana em que o período vale. Todos os dias se omitido."
+        },
+        "clear_existing": {
+          "name": "Substituir existentes",
+          "description": "Remove antes todos os outros períodos de modo de passagem, inclusive os definidos pelo aplicativo oficial. Desligado por padrão."
+        }
+      }
+    },
+    "clear_passage_mode": {
+      "name": "Limpar modo de passagem",
+      "description": "Remove todos os períodos de modo de passagem da fechadura, inclusive os definidos pelo aplicativo oficial."
     }
   },
   "selector": {
@@ -215,6 +268,17 @@
       "options": {
         "dlock_xp": "TTLock / DLock-XP",
         "schlage_breeze": "Schlage Breeze"
+      }
+    },
+    "weekdays": {
+      "options": {
+        "mon": "Segunda-feira",
+        "tue": "Terça-feira",
+        "wed": "Quarta-feira",
+        "thu": "Quinta-feira",
+        "fri": "Sexta-feira",
+        "sat": "Sábado",
+        "sun": "Domingo"
       }
     }
   }

@@ -15,6 +15,7 @@ from ttlock_ble import (
     LockFeature,
     LockSound,
     PasscodeEntry,
+    TTLockError,
 )
 
 from custom_components.ttlock_ble.clock_sync_store import TtlockBleClockSyncStore
@@ -22,6 +23,7 @@ from custom_components.ttlock_ble.coordinator import (
     CLOCK_CHECK_INTERVAL_SECONDS,
     CLOCK_DRIFT_THRESHOLD_SECONDS,
     CREDENTIAL_CHECK_INTERVAL_SECONDS,
+    PASSAGE_CHECK_INTERVAL_SECONDS,
     SOUND_CHECK_INTERVAL_SECONDS,
     TtlockBleDataUpdateCoordinator,
     _parse_lock_state,
@@ -59,6 +61,7 @@ def _mock_connection(*, query_return=(0, 80), mac="AA:BB:CC:DD:EE:FF") -> MagicM
     conn.async_get_cards = AsyncMock(return_value=None)
     conn.async_get_passcodes = AsyncMock(return_value=None)
     conn.async_calibrate_time = AsyncMock(return_value=True)
+    conn.async_get_passage_slots = AsyncMock(return_value=[])
     return conn
 
 
@@ -1251,3 +1254,104 @@ async def test_dormant_advertisement_keeps_the_old_reading_timestamp(hass) -> No
     state = coordinator.data["AA:BB:CC:DD:EE:FF"]
     assert state["locked"] is False
     assert state["observed_at"] == 42.0
+
+
+def _passage_connection(*, admin: bool = True, passage_mode: bool = True) -> MagicMock:
+    """A connection whose lock lists its passage mode slots when asked."""
+    conn = _sound_connection(admin=admin)
+    conn.key.feature_mask = 1
+    conn.key.has_feature = MagicMock(return_value=passage_mode)
+    conn.async_get_passage_slots = AsyncMock(return_value=["slot"])
+    return conn
+
+
+async def test_passage_slots_are_unknown_until_a_session_carries_them(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _passage_connection()})
+
+    assert coordinator.async_passage_slots(MAC) is None
+
+
+async def test_a_poll_reads_the_passage_slots_at_most_once_per_interval(hass) -> None:
+    conn = _passage_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_passage_slots.assert_awaited_once()
+    assert coordinator.async_passage_slots(MAC) == ["slot"]
+
+
+async def test_the_passage_slots_are_read_again_once_the_interval_has_passed(
+    hass,
+) -> None:
+    conn = _passage_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    coordinator._passage_checked_at[MAC] -= PASSAGE_CHECK_INTERVAL_SECONDS
+    await coordinator._async_update_data()
+
+    assert conn.async_get_passage_slots.await_count == 2
+
+
+async def test_the_passage_slots_are_read_on_the_session_of_a_log_read(hass) -> None:
+    conn = _passage_connection()
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_fetch_operation_log(MAC, conn)
+
+    conn.async_get_passage_slots.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "conn",
+    [_passage_connection(admin=False), _passage_connection(passage_mode=False)],
+    ids=["no admin key", "lock without passage mode"],
+)
+async def test_a_key_that_cannot_ask_is_not_asked_for_passage_slots(hass, conn) -> None:
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+
+    conn.async_get_passage_slots.assert_not_awaited()
+
+
+async def test_a_refused_passage_read_is_not_repeated_on_every_session(hass) -> None:
+    """A refusal costs the session, so the lock is left alone for the interval."""
+    conn = _passage_connection()
+    conn.async_get_passage_slots = AsyncMock(side_effect=TTLockError("refused"))
+    coordinator = _coordinator(hass, {MAC: conn})
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    conn.async_get_passage_slots.assert_awaited_once()
+    assert coordinator.async_passage_slots(MAC) is None
+
+
+async def test_noting_passage_slots_tells_the_entities(hass) -> None:
+    coordinator = _coordinator(hass, {MAC: _passage_connection()})
+    listener = MagicMock()
+    coordinator.async_add_listener(listener)
+
+    coordinator.async_note_passage_slots(MAC, ["slot"])
+
+    listener.assert_called()
+
+
+async def test_restored_passage_slots_yield_to_what_the_lock_lists(hass) -> None:
+    conn = _passage_connection()
+    conn.async_get_passage_slots = AsyncMock(return_value=["listed"])
+    coordinator = _coordinator(hass, {MAC: conn})
+    listener = MagicMock()
+    coordinator.async_add_listener(listener)
+
+    coordinator.async_restore_passage_slots(MAC, ["restored"])
+    assert coordinator.async_passage_slots(MAC) == ["restored"]
+    listener.assert_called()
+
+    await coordinator._async_update_data()
+    coordinator.async_restore_passage_slots(MAC, ["restored"])
+
+    assert coordinator.async_passage_slots(MAC) == ["listed"]

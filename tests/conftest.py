@@ -159,6 +159,10 @@ def mock_ttlock_client() -> Generator[MagicMock]:
     instance.lock = AsyncMock(return_value=None)
     instance.unlock = AsyncMock(return_value=None)
     instance.set_lock_sound = AsyncMock(return_value=None)
+    instance.get_passage_mode = AsyncMock(return_value=[])
+    instance.add_passage_mode_slot = AsyncMock(return_value=None)
+    instance.delete_passage_mode_slot = AsyncMock(return_value=None)
+    instance.clear_passage_mode = AsyncMock(return_value=None)
     instance.add_event_listener = MagicMock(return_value=None)
     instance.remove_event_listener = MagicMock(return_value=None)
     with patch("custom_components.ttlock_ble.connection.TTLockClient") as cls:
@@ -185,6 +189,10 @@ def mock_ttlock_connection(sample_virtual_key: VirtualKey) -> Generator[MagicMoc
     instance.async_lock = AsyncMock(return_value=None)
     instance.async_unlock = AsyncMock(return_value=None)
     instance.async_set_lock_sound = AsyncMock(return_value=None)
+    instance.async_get_passage_slots = AsyncMock(return_value=[])
+    instance.async_add_passage_slot = AsyncMock(return_value=None)
+    instance.async_delete_passage_slot = AsyncMock(return_value=None)
+    instance.async_clear_passage_slots = AsyncMock(return_value=None)
     instance.is_connected = True
     instance.quality = TtlockBleConnectionQuality()
     with patch("custom_components.ttlock_ble.TtlockBleConnection") as cls:

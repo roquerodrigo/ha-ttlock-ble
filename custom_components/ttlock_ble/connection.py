@@ -29,6 +29,7 @@ from .const import DOMAIN, LOGGER
 from .data import TtlockBleLogCursor
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
     from bleak import BleakClient
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         LockSound,
         LockState,
         LogEntry,
+        PassageModeSlot,
         PasscodeEntry,
         VirtualKey,
     )
@@ -377,6 +379,34 @@ class TtlockBleConnection:
         """Turn the lock's beep on or off (raises on failure)."""
         await self._async_run_command("sound_on" if enabled else "sound_off")
 
+    async def async_get_passage_slots(self) -> list[PassageModeSlot]:
+        """Read the lock's passage mode slots (raises on failure)."""
+        return await self._async_run_on_client(
+            "get_passage_mode",
+            lambda client: client.get_passage_mode(),
+        )
+
+    async def async_add_passage_slot(self, slot: PassageModeSlot) -> None:
+        """Store one passage mode slot on the lock (raises on failure)."""
+        await self._async_run_on_client(
+            "add_passage_mode_slot",
+            lambda client: client.add_passage_mode_slot(slot),
+        )
+
+    async def async_delete_passage_slot(self, slot: PassageModeSlot) -> None:
+        """Remove one passage mode slot from the lock (raises on failure)."""
+        await self._async_run_on_client(
+            "delete_passage_mode_slot",
+            lambda client: client.delete_passage_mode_slot(slot),
+        )
+
+    async def async_clear_passage_slots(self) -> None:
+        """Remove every passage mode slot from the lock (raises on failure)."""
+        await self._async_run_on_client(
+            "clear_passage_mode",
+            lambda client: client.clear_passage_mode(),
+        )
+
     async def async_get_operation_log(self) -> list[LogEntry]:
         """
         Fetch operation records from the lock and dispatch the new ones.
@@ -457,8 +487,25 @@ class TtlockBleConnection:
         return new_entries
 
     async def _async_run_command(self, action: str) -> None:
+        """Run one bolt or beep command on the live connection."""
+
+        async def _operation(client: TTLockClient) -> None:
+            if action == "lock":
+                await client.lock()
+            elif action == "unlock":
+                await client.unlock()
+            else:
+                await client.set_lock_sound(enabled=action == "sound_on")
+
+        await self._async_run_on_client(action, _operation)
+
+    async def _async_run_on_client[T](
+        self,
+        action: str,
+        operation: Callable[[TTLockClient], Awaitable[T]],
+    ) -> T:
         """
-        Acquire the lock, ensure connected, then run one command on it.
+        Acquire the lock, ensure connected, then run one operation on it.
 
         Everything that is not already a `TTLockError` is converted into
         one so callers only ever see the integration's own exception
@@ -475,12 +522,7 @@ class TtlockBleConnection:
                 msg = f"Lock {self._key.lockMac} not reachable via Bluetooth"
                 raise TTLockError(msg)
             try:
-                if action == "lock":
-                    await client.lock()
-                elif action == "unlock":
-                    await client.unlock()
-                else:
-                    await client.set_lock_sound(enabled=action == "sound_on")
+                return await operation(client)
             except TTLockError:
                 await self._async_disconnect_locked()
                 raise

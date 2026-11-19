@@ -1,4 +1,4 @@
-"""Binary sensor platform for ttlock_ble — BLE connection and door sensor state."""
+"""Binary sensor platform for ttlock_ble — BLE connection, door and passage mode."""
 
 from __future__ import annotations
 
@@ -16,12 +16,16 @@ from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
 from ttlock_ble import LogOperate
 
 from .connection import connection_signal, log_signal
 from .const import DOMAIN
 from .entity import TtlockBleEntity
+from .key_privileges import can_manage_passage_mode
+from .passage_mode import describe_slot, slot_covers, slot_from_description
+from .passage_mode_entity import TtlockBlePassageModeEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
@@ -31,7 +35,7 @@ if TYPE_CHECKING:
 
     from .connection import TtlockBleConnection
     from .coordinator import TtlockBleDataUpdateCoordinator
-    from .data import TtlockBleConfigEntry
+    from .data import TtlockBleConfigEntry, TtlockBlePassageModeAttributes
 
 
 DOOR_OPENED_RECORD_TYPES: frozenset[int] = frozenset(
@@ -41,6 +45,9 @@ DOOR_OPENED_RECORD_TYPES: frozenset[int] = frozenset(
     },
 )
 DOOR_CLOSED_RECORD_TYPES: frozenset[int] = frozenset({LogOperate.DOOR_SENSOR_LOCK})
+
+# What rebuilding a slot raises on a restored attribute that is not one.
+MALFORMED_SLOT_ERRORS = (KeyError, TypeError, ValueError)
 
 
 async def async_setup_entry(
@@ -53,6 +60,11 @@ async def async_setup_entry(
     async_add_entities(
         TtlockBleConnectionBinarySensor(data.coordinator, key)
         for key in data.virtual_keys
+    )
+    async_add_entities(
+        TtlockBlePassageModeBinarySensor(data.coordinator, key)
+        for key in data.virtual_keys
+        if can_manage_passage_mode(key)
     )
     registry = er.async_get(hass)
     for key in data.virtual_keys:
@@ -164,6 +176,68 @@ class TtlockBleConnectionBinarySensor(TtlockBleEntity, BinarySensorEntity):
     def _connection(self) -> TtlockBleConnection:
         """Return the persistent BLE connection wrapper for this lock."""
         return self.coordinator.connections[self._key.lockMac]
+
+
+class TtlockBlePassageModeBinarySensor(
+    TtlockBlePassageModeEntity, BinarySensorEntity, RestoreEntity
+):
+    """
+    Whether a passage mode slot is in effect on the lock right now.
+
+    While one is, the lock no longer relocks on its own after an unlock.
+    It is worked out from the slots the lock last listed (see
+    `TtlockBlePassageModeEntity`), so it is unknown until a session has
+    carried a read, and only created for a key that can ask: the firmware
+    lists the slots to an admin key alone.
+
+    On says a slot covers this minute, not that the bolt is drawn back:
+    the lock still has to be unlocked once inside the slot to stay so.
+
+    It is a `RestoreEntity` for the slots rather than for the state: the
+    list it last showed is handed back to the coordinator after a restart,
+    so the sensor follows the clock again at once instead of waiting for
+    the next session, which then replaces the list.
+    """
+
+    _attr_translation_key = "passage_mode"
+    _attr_icon = "mdi:door-open"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a stable unique id for this entity."""
+        return f"{self._key.lockMac}_passage_mode"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether a known slot covers the current minute."""
+        slots = self._slots
+        if slots is None:
+            return None
+        now = dt_util.now()
+        return any(slot_covers(slot, now) for slot in slots)
+
+    @property
+    def extra_state_attributes(self) -> TtlockBlePassageModeAttributes:
+        """Return the slots the lock was last known to hold."""
+        return {"slots": [describe_slot(slot) for slot in self._slots or []]}
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the slots this entity last showed, then follow the clock."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._restore_slots(last_state.attributes.get("slots"))
+            self._async_arm_transition()
+
+    def _restore_slots(self, described: object) -> None:
+        """Hand the slots of a restored state back to the coordinator, if it has any."""
+        if not isinstance(described, list):
+            return
+        try:
+            slots = [slot_from_description(description) for description in described]
+        except MALFORMED_SLOT_ERRORS:
+            return
+        self.coordinator.async_restore_passage_slots(self._key.lockMac, slots)
 
 
 class TtlockBleDoorBinarySensor(TtlockBleEntity, BinarySensorEntity, RestoreEntity):

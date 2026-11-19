@@ -1292,3 +1292,63 @@ async def test_a_reused_session_is_not_counted_again(
 
 def test_quality_signal_lowercases_mac() -> None:
     assert quality_signal("AA:BB:CC:DD:EE:FF") == "ttlock_ble_quality_aa:bb:cc:dd:ee:ff"
+
+
+async def test_passage_slots_are_read_through_the_sdk(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ttlock_client.get_passage_mode = AsyncMock(return_value=["slot"])
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    assert await conn.async_get_passage_slots() == ["slot"]
+
+
+async def test_passage_slot_writes_reach_the_sdk(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    await conn.async_add_passage_slot("slot")
+    await conn.async_delete_passage_slot("slot")
+    await conn.async_clear_passage_slots()
+
+    mock_ttlock_client.add_passage_mode_slot.assert_awaited_once_with("slot")
+    mock_ttlock_client.delete_passage_mode_slot.assert_awaited_once_with("slot")
+    mock_ttlock_client.clear_passage_mode.assert_awaited_once_with()
+
+
+async def test_a_passage_round_trip_that_fails_drops_the_session(
+    hass,
+    sample_virtual_key,
+    mock_ble_resolver,
+    mock_ttlock_client,
+) -> None:
+    mock_ttlock_client.clear_passage_mode = AsyncMock(side_effect=ValueError("garbled"))
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+
+    with pytest.raises(TTLockError, match="clear_passage_mode"):
+        await conn.async_clear_passage_slots()
+
+    mock_ttlock_client.disconnect.assert_awaited()
+
+
+async def test_a_passage_round_trip_out_of_range_raises(
+    hass,
+    sample_virtual_key,
+    mock_ttlock_client,
+) -> None:
+    conn = TtlockBleConnection(hass, sample_virtual_key)
+    with (
+        patch(
+            "custom_components.ttlock_ble.connection.async_ble_device_from_address",
+            return_value=None,
+        ),
+        pytest.raises(TTLockError),
+    ):
+        await conn.async_get_passage_slots()

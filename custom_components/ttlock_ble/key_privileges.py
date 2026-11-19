@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ttlock_ble import LockFeature
+
 if TYPE_CHECKING:
-    from ttlock_ble import LockFeature, VirtualKey
+    from ttlock_ble import VirtualKey
 
 
 def can_administer(key: VirtualKey) -> bool:
@@ -28,3 +30,13 @@ def may_hold(key: VirtualKey, feature: LockFeature) -> bool:
     does, says nothing either way, so it is not taken as a refusal.
     """
     return key.feature_mask == 0 or key.has_feature(feature)
+
+
+def can_manage_passage_mode(key: VirtualKey) -> bool:
+    """
+    Report whether the lock behind `key` can be asked about its passage mode.
+
+    The firmware lists and changes the slots only for an admin key, and a
+    lock whose feature bits rule passage mode out has none to list.
+    """
+    return can_administer(key) and may_hold(key, LockFeature.PASSAGE_MODE)

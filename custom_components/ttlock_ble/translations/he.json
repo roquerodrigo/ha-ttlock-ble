@@ -128,6 +128,9 @@
       },
       "door": {
         "name": "דלת"
+      },
+      "passage_mode": {
+        "name": "מצב מעבר פעיל"
       }
     },
     "button": {
@@ -186,11 +189,20 @@
       },
       "signal_strength": {
         "name": "עוצמת אות"
+      },
+      "passage_mode_start": {
+        "name": "תחילת מצב מעבר"
+      },
+      "passage_mode_end": {
+        "name": "סיום מצב מעבר"
       }
     },
     "switch": {
       "sound": {
         "name": "צליל"
+      },
+      "passage_mode": {
+        "name": "מצב מעבר"
       }
     },
     "text": {
@@ -208,6 +220,47 @@
   "exceptions": {
     "credentials_not_read": {
       "message": "לא ניתן לקרוא את אמצעי הגישה של {lock}. ודאו שהמנעול בטווח ונסו שוב."
+    },
+    "passage_mode_unavailable": {
+      "message": "{lock} יכול לבצע זאת רק עם מפתח מנהל הכולל את קוד המנהל, במנעול התומך במצב מעבר."
+    },
+    "passage_mode_failed": {
+      "message": "לא ניתן לשנות את מצב המעבר של {lock}. ודאו שהמנעול בטווח ונסו שוב."
+    },
+    "passage_schedule_invalid": {
+      "message": "החלון {start} עד {end} אינו מסתיים אחרי שהתחיל. חלון שחוצה את חצות דורש שני לוחות זמנים."
+    }
+  },
+  "services": {
+    "get_passage_mode": {
+      "name": "קריאת מצב מעבר",
+      "description": "קורא את חלונות מצב המעבר השמורים במנעול."
+    },
+    "set_passage_mode": {
+      "name": "הגדרת מצב מעבר",
+      "description": "כותב חלון יומי של מצב מעבר בימים שנבחרו: מזמן ההתחלה המנעול נשאר פתוח לאחר שנפתח, עד זמן הסיום. נדרש מפתח מנהל.",
+      "fields": {
+        "start_time": {
+          "name": "שעת התחלה",
+          "description": "מתי המנעול מתחיל להישאר פתוח לאחר שנפתח."
+        },
+        "end_time": {
+          "name": "שעת סיום",
+          "description": "מתי זה נפסק. חצות פירושו סוף היום."
+        },
+        "days": {
+          "name": "ימים",
+          "description": "ימי השבוע שהחלון חל עליהם. כל הימים אם לא צוין."
+        },
+        "clear_existing": {
+          "name": "החלפת הקיימים",
+          "description": "להסיר תחילה את כל שאר חלונות מצב המעבר, כולל אלה שהוגדרו באפליקציה הרשמית. כבוי כברירת מחדל."
+        }
+      }
+    },
+    "clear_passage_mode": {
+      "name": "ניקוי מצב מעבר",
+      "description": "מסיר את כל חלונות מצב המעבר מהמנעול, כולל אלה שהוגדרו באפליקציה הרשמית."
     }
   },
   "selector": {
@@ -215,6 +268,17 @@
       "options": {
         "dlock_xp": "TTLock / DLock-XP",
         "schlage_breeze": "Schlage Breeze"
+      }
+    },
+    "weekdays": {
+      "options": {
+        "mon": "יום שני",
+        "tue": "יום שלישי",
+        "wed": "יום רביעי",
+        "thu": "יום חמישי",
+        "fri": "יום שישי",
+        "sat": "יום שבת",
+        "sun": "יום ראשון"
       }
     }
   }

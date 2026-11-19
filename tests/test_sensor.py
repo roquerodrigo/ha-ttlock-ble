@@ -69,7 +69,7 @@ async def test_clock_drift_reports_the_last_comparison(
 
 
 async def test_battery_sensor_created_for_each_key(hass, setup_integration) -> None:
-    assert len(hass.states.async_all("sensor")) == 10
+    assert len(hass.states.async_all("sensor")) == 12
 
 
 async def test_battery_sensor_reports_coordinator_value(
@@ -1114,3 +1114,68 @@ async def test_signal_quality_reports_the_rssi_as_a_percentage(
     assert written.attributes["unit_of_measurement"] == "%"
     assert "device_class" not in written.attributes
     assert written.attributes["source"] == "hci0"
+
+
+def _passage_sensor(hass, suffix: str):
+    return next(
+        state
+        for state in hass.states.async_all("sensor")
+        if state.entity_id.endswith(f"passage_mode_{suffix}")
+    )
+
+
+def _slot_22_to_23():
+    from ttlock_ble import PassageModeSlot
+
+    return PassageModeSlot(kind=1, day=6, month=0, start_minute=1320, end_minute=1380)
+
+
+async def test_passage_mode_times_are_unknown_without_a_slot(
+    hass, setup_integration
+) -> None:
+    assert _passage_sensor(hass, "start").state == "unknown"
+    assert _passage_sensor(hass, "end").state == "unknown"
+
+
+async def test_passage_mode_times_follow_the_slot_in_effect(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    freezer,
+) -> None:
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to("2026-11-14 22:20:00+00:00")
+    setup_integration.runtime_data.coordinator.async_note_passage_slots(
+        sample_virtual_key.lockMac, [_slot_22_to_23()]
+    )
+    await hass.async_block_till_done()
+
+    assert _passage_sensor(hass, "start").state == "2026-11-14T22:00:00+00:00"
+    assert _passage_sensor(hass, "end").state == "2026-11-14T23:00:00+00:00"
+
+
+async def test_passage_mode_times_move_on_when_the_slot_ends(
+    hass,
+    setup_integration,
+    sample_virtual_key,
+    freezer,
+) -> None:
+    """Once the slot has ended, the next occurrence is a week on."""
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to("2026-11-14 22:20:00+00:00")
+    setup_integration.runtime_data.coordinator.async_note_passage_slots(
+        sample_virtual_key.lockMac, [_slot_22_to_23()]
+    )
+    await hass.async_block_till_done()
+    before = _passage_sensor(hass, "start").state
+
+    moment = "2026-11-14 23:00:00+00:00"
+    freezer.move_to(moment)
+    async_fire_time_changed(hass, dt_util.parse_datetime(moment))
+    await hass.async_block_till_done()
+
+    assert _passage_sensor(hass, "start").state != before
+    assert _passage_sensor(hass, "start").state == "2026-11-21T22:00:00+00:00"
