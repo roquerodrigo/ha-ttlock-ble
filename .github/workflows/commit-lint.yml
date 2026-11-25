@@ -1,0 +1,17 @@
+name: Commit lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+concurrency:
+  group: commit-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  commits:
+    permissions:
+      pull-requests: read
+    uses: roquerodrigo/workflows/.github/workflows/commit-lint.yml@main
